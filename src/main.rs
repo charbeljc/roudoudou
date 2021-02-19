@@ -3,6 +3,9 @@ extern crate dotenv;
 extern crate jsonrpc_client_core;
 extern crate jsonrpc_client_http;
 extern crate serde_json;
+extern crate url;
+
+use url::{Url, ParseError};
 use dotenv::dotenv;
 use std::env;
 use std::fs::File;
@@ -48,21 +51,18 @@ impl OdooApi {
             jsonrpc_handle: jsonrpc_transport.handle(ODOO_JSONRPC).unwrap(),
         }
     }
-    pub fn login(&mut self, db: &str, login: &str, password: &str) -> Value {
+    pub fn login(&mut self, db: &str, login: &str, password: &str) -> Result<Value, Error> {
         call_method(
             &mut self.login_handle,
             "call".to_owned(),
             json!({"db": db, "login": login, "password": password}),
         )
         .call()
-        .unwrap()
     }
-    pub fn logout(&mut self) -> Value {
-        call_method(&mut self.logout_handle, "call".to_owned(), json!({}))
-            .call()
-            .unwrap()
+    pub fn logout(&mut self) -> Result<Value, Error> {
+        call_method(&mut self.logout_handle, "call".to_owned(), json!({})).call()
     }
-    pub fn db_list(&mut self) -> Value {
+    pub fn db_list(&mut self) -> Result<Value, Error> {
         call_method(
             &mut self.jsonrpc_handle,
             "call".to_owned(),
@@ -73,7 +73,6 @@ impl OdooApi {
             }),
         )
         .call()
-        .unwrap()
     }
     pub fn db_dump(
         &mut self,
@@ -123,6 +122,77 @@ impl OdooApi {
         )
         .call()
     }
+    pub fn object_fields_get(
+        &mut self,
+        db: &str,
+        uid: u32,
+        login: &str,
+        object: &str,
+    ) -> Result<Value, Error> {
+        call_method(
+            &mut self.jsonrpc_handle,
+            "call".to_owned(),
+            json!({
+                "service": "object",
+                "method": "execute",
+                "args": [db, uid, login, object, "fields_get"]
+            }),
+        )
+        .call()
+    }
+    pub fn object_search(
+        &mut self,
+        db: &str,
+        uid: u32,
+        login: &str,
+        object: &str,
+        domain: Value,
+    ) -> Result<Value, Error> {
+        call_method(
+            &mut self.jsonrpc_handle,
+            "call".to_owned(),
+            json!({
+                "service": "object",
+                "method": "execute_kw",
+                "args": [db, uid, login, object, "search", (domain,),
+                 {
+                    "context": {"lang": "en_US",
+                    "current_week": "2107",
+                    "tz": "Europe/Paris",
+                    "uid": 1,
+                    "current_week2": "2018"
+                }}]
+            }),
+        )
+        .call()
+    }
+    pub fn object_read(
+        &mut self,
+        db: &str,
+        uid: u32,
+        login: &str,
+        object: &str,
+        ids: Value,
+        fields: Value,
+    ) -> Result<Value, Error> {
+        call_method(
+            &mut self.jsonrpc_handle,
+            "call".to_owned(),
+            json!({
+                "service": "object",
+                "method": "execute_kw",
+                "args": [db, uid, login, object, "read", (ids, fields),
+                 {
+                    "context": {"lang": "en_US",
+                    "current_week": "2107",
+                    "tz": "Europe/Paris",
+                    "uid": 1,
+                    "current_week2": "2018"
+                }}]
+            }),
+        )
+        .call()
+    }
 }
 
 impl Odoo {
@@ -156,66 +226,121 @@ fn main() -> io::Result<()> {
     odoo.login("tec-528".to_owned(), "admin".to_owned(), "admin".to_owned());
 
     let mut client = OdooApi::new();
-    let res: Value = client.login("tec-528", "admin", "admin");
+    let res: Value = client.login("tec-528", "admin", "admin").unwrap();
     println!("login: res: {:#?}", res);
     println!("calling db list ...");
-    let dblist: Value = client.db_list();
+    let dblist: Value = client.db_list().unwrap();
     println!("db_list: {:#?}", dblist);
-    println!("calling db dump ...");
-    // let res = client.db_dump("diabeloop", "tec-529", "zip");
+    // println!("calling db dump ...");
+    // let res = client.db_dump("diabeloop", "tec-528", "zip");
     // match res {
-    //     Ok(_val) => println!("string"),
-    //     Err(err) => println!("error: {:#?}", err),
+    //     Ok(Value::String(val)) => {
+    //         // println!("decoding data:\n{:#?}", &val[0..1000]);
+    //         let f = File::create("dump.zip")?;
+    //         let mut writer = BufWriter::new(f);
+    //         let wrapped_reader = Cursor::new(val);
+    //         println!("save file ...");
+    //         for line in wrapped_reader.lines() {
+    //             //let data = base64::decode(line.as_bytes()).unwrap();
+    //             match line {
+    //                 Ok(val) => {
+    //                     let data = base64::decode(val).unwrap();
+    //                     writer.write(&data)?;
+    //                 }
+    //                 Err(err) => {
+    //                     println!("err: {:#?}", err);
+    //                 }
+    //             };
+    //         }
+    //         //let data = base64::decode(val).unwrap();
+    //         println!("done.");
+    //     }
+    //     Ok(_) => {
+    //         println!("Huu");
+    //     }
+    //     Err(err) => {
+    //         println!("error: {:#?}", err);
+    //     }
     // }
-    let res = client.db_dump("diabeloop", "tec-528", "zip");
+    // println!("db create ...");
+    // let res = client.db_create("diabeloop", "test2", false, "fr_FR", "admin");
+    // match res {
+    //     Ok(val) => {
+    //         println!("create: {:#?}", val);
+    //     }
+    //     Err(err) => {
+    //         println!("error: {:#?}", err);
+    //     }
+    // };
+    // println!("db drop ...");
+    // let res = client.db_drop("diabeloop", "test2");
+    // match res {
+    //     Ok(val) => {
+    //         println!("drop: {:#?}", val);
+    //     }
+    //     Err(err) => {
+    //         println!("err: {:#?}", err);
+    //     }
+    // };
+    println!("field get ...");
+    let res = client.object_fields_get("tec-528", 1, "admin", "stock.label");
     match res {
-        Ok(Value::String(val)) => {
-            // println!("decoding data:\n{:#?}", &val[0..1000]);
-            let f = File::create("dump.zip")?;
-            let mut writer = BufWriter::new(f);
-            let wrapped_reader = Cursor::new(val);
-            println!("save file ...");
-            for line in wrapped_reader.lines() {
-                //let data = base64::decode(line.as_bytes()).unwrap();
-                match line {
-                    Ok(val) => {
-                        let data = base64::decode(val).unwrap();
-                        writer.write(&data)?;
-                    }
-                    Err(err) => {
-                        println!("err: {:#?}", err);
-                    }
-                };
+        Ok(Value::Object(val)) => {
+            for (key, _value) in val {
+                println!("attr: {:#?}", key);
             }
-            //let data = base64::decode(val).unwrap();
-            println!("done.");
         }
         Ok(_) => {
-            println!("Huu");
+            println!("uuhh");
         }
-        Err(err) => {
-            println!("error: {:#?}", err);
+        Err(why) => {
+            println!("err: {:#?}", why);
+        }
+    };
+
+    let res = client.object_search(
+        "tec-528",
+        1,
+        "admin",
+        "stock.label",
+        json!([
+            ("is_terminal", "=", true),
+            ("id", ">=", 1000),
+            ("id", "<=", 1100)
+        ]),
+    ).unwrap();
+    // match res {
+    //     Ok(Value::Array(val)) => {
+    //         println!("res: {:#?}", val);
+    //     }
+    //     _ => {
+    //         println!("uuhh?");
+    //     }
+    // }
+    let res = client.object_read(
+        "tec-528",
+        1,
+        "admin",
+        "stock.label",
+        res,                              // json!([1024, 1025, 1026])
+        json!([
+            "name",
+            "product_tag_ids",
+            "is_terminal",
+            "location_id",
+            "state"
+        ]),
+    );
+    match res {
+        Ok(Value::Array(val)) => {
+            for item in val {
+                println!("item: {:#?}", item);
+            }
+        }
+        _ => {
+            println!("uhh?");
         }
     }
-    println!("db create ...");
-    let res = client.db_create("diabeloop", "test2", false, "fr_FR", "admin");
-    match res {
-        Ok(val) => {
-            println!("create: {:#?}", val);
-        }
-        Err(err) => {
-            println!("error: {:#?}", err);
-        }
-    };
-    println!("db drop ...");
-    let res = client.db_drop("diabeloop", "test2");
-    match res {
-        Ok(val) => {
-            println!("drop: {:#?}", val);
-        }
-        Err(err) => {
-            println!("err: {:#?}", err);
-        }
-    };
+
     Ok(())
 }
