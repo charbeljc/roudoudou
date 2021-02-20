@@ -1,7 +1,5 @@
-#[macro_use]
-extern crate lazy_static;
 use std::env;
-use url::{ParseError, Url};
+pub use url::{ParseError, Url};
 
 pub fn odoo_url_from_env() -> Result<Url, ParseError> {
     match env::var("ODOO_URL") {
@@ -30,6 +28,10 @@ pub fn odoo_url_from_env() -> Result<Url, ParseError> {
         }
     }
 }
+
+#[cfg(test)]
+#[macro_use]
+extern crate lazy_static;
 
 #[cfg(test)]
 mod tests {

@@ -4,14 +4,16 @@ extern crate jsonrpc_client_core;
 extern crate jsonrpc_client_http;
 extern crate serde_json;
 extern crate url;
+extern crate reqwest;
 
-use url::{Url, ParseError};
 use dotenv::dotenv;
 use std::env;
-use std::fs::File;
+// use std::fs::File;
 use std::io;
-use std::io::prelude::*;
-use std::io::BufWriter;
+use std::path::Path;
+// use std::io::prelude::*;
+// use std::io::BufWriter;
+// use std::io::Cursor;
 
 pub use serde_json::json;
 pub use serde_json::{Map, Number, Value};
@@ -19,45 +21,138 @@ pub use serde_json::{Map, Number, Value};
 use jsonrpc_client_core::{call_method, Error};
 use jsonrpc_client_http::HttpHandle;
 use jsonrpc_client_http::HttpTransport;
-use std::io::Cursor;
+
+
+use rudodoo::{odoo_url_from_env, Url};
+use serde::{Serialize,Deserialize};
+
+#[derive(Debug, Serialize)]
+pub struct RpcRequest<'a> {
+    jsonrpc: &'a str,
+    method: &'a str,
+    id: u32,
+    params: Value,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserContext {
+    current_week: String,
+    current_week2: String,
+    lang: String,
+    tz: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SessionInfo {
+    company_id: i32,
+    db: String,
+    partner_id: i32,
+    registered_contract: String,
+    session_id: String,
+    uid: i32,
+    user_context: UserContext,
+    username: String,
+}
+
+const ODOO_SERVER_VERSION: &str = "/web/webclient/version_info";
+const ODOO_LOGIN: &str = "/web/session/authenticate";
+const ODOO_LOGOUT: &str = "/web/session/destroy";
+const ODOO_JSONRPC: &str = "/jsonrpc";
+
+const JSONRPC_20: &str = "2.0";
+
+pub struct OdooClient {
+    base_url: Url,
+    http: reqwest::Client,
+}
+
+impl OdooClient {
+    pub fn new() -> Self {
+        Self { base_url: odoo_url_from_env().unwrap(),
+        http: reqwest::Client::new() }
+    }
+}
+
+trait OdooRpc {
+    fn encode_call<'a>(&self, method: &'a str, params: Value) -> RpcRequest<'a> {
+        RpcRequest {
+            jsonrpc: JSONRPC_20,
+            method: method,
+            id: 1,
+            params: params
+        }
+    }
+    fn send_call(&self, endpoint: &str, payload: RpcRequest); // -> reqwest::Result<reqwest::Response>;
+    fn decode_response(&self, response: reqwest::Response) -> Value;
+    fn download_base64(&self, response: reqwest::Response, path: &Path);
+}
+
+impl OdooRpc for OdooClient {
+    fn send_call(&self, endpoint: &str, payload: RpcRequest) { // -> reqwest::Result<reqwest::Response> {
+        let j = serde_json::to_string(&payload).unwrap();
+        println!("to string: {:?}", j);
+    }
+    fn decode_response(&self, response: reqwest::Response) -> Value {
+        println!("decode_response: {:?}", response);
+        json!({})
+    }
+    fn download_base64(&self, response: reqwest::Response, path: &Path) {
+        println!("download file: {:?} to {:?}", response, path);
+    }
+}
 
 #[derive(Default, Debug)]
 struct Odoo {
     host: String,
-    port: u32,
+    port: u16,
     protocol: String,
     version: String,
 }
 
-const ODOO_LOGIN: &str = "http://localhost:8069/web/session/authenticate";
-const ODOO_LOGOUT: &str = "http://localhost:8069/web/session/destroy";
-const ODOO_JSONRPC: &str = "http://localhost:8069/jsonrpc";
-
 pub struct OdooApi {
+    version_handle: HttpHandle,
     login_handle: HttpHandle,
     logout_handle: HttpHandle,
     jsonrpc_handle: HttpHandle,
+    cli: OdooClient,
 }
 
 impl OdooApi {
-    pub fn new() -> Self {
-        let login_transport = HttpTransport::new().standalone().unwrap();
-        let logout_transport = HttpTransport::new().standalone().unwrap();
-        let jsonrpc_transport = HttpTransport::new().standalone().unwrap();
+    pub fn new(cli: OdooClient) -> Self {
+
+
+        let transport = HttpTransport::new().standalone().unwrap();
+        let version_url = cli.base_url.join(ODOO_SERVER_VERSION).unwrap();
+        let login_url = cli.base_url.join(ODOO_LOGIN).unwrap();
+        let logout_url = cli.base_url.join(ODOO_LOGOUT).unwrap();
+        let jsonrpc_url = cli.base_url.join(ODOO_JSONRPC).unwrap();
 
         OdooApi {
-            login_handle: login_transport.handle(ODOO_LOGIN).unwrap(),
-            logout_handle: logout_transport.handle(ODOO_LOGOUT).unwrap(),
-            jsonrpc_handle: jsonrpc_transport.handle(ODOO_JSONRPC).unwrap(),
+            cli: cli,
+            version_handle: transport.handle(version_url.as_str()).unwrap(),
+            login_handle: transport.handle(login_url.as_str()).unwrap(),
+            logout_handle: transport.handle(logout_url.as_str()).unwrap(),
+            jsonrpc_handle: transport.handle(jsonrpc_url.as_str()).unwrap(),
         }
     }
-    pub fn login(&mut self, db: &str, login: &str, password: &str) -> Result<Value, Error> {
-        call_method(
+    pub fn login(&mut self, db: &str, login: &str, password: &str) -> Result<SessionInfo, Error> {
+        let params = json!({"db": db, "login": login, "password": password});
+        
+        let payload = self.cli.encode_call("call", params.clone());
+        println!("login payload: {:?}", payload);
+        println!("raw: {}", serde_json::to_string_pretty(&payload).unwrap());
+
+        let result = call_method(
             &mut self.login_handle,
             "call".to_owned(),
-            json!({"db": db, "login": login, "password": password}),
+            params
         )
-        .call()
+        .call();
+        let session = match result {
+
+            Ok(value) => Ok(serde_json::from_value::<SessionInfo>(value).unwrap()),
+            Err(err) => Err(err)
+        };
+        println!("session: {:?}", session);
+        session
     }
     pub fn logout(&mut self) -> Result<Value, Error> {
         call_method(&mut self.logout_handle, "call".to_owned(), json!({})).call()
@@ -202,34 +297,33 @@ impl Odoo {
 }
 fn main() -> io::Result<()> {
     dotenv().ok();
-    for (key, env) in env::vars() {
-        println!("{}: {}", key, env);
-    }
-    let port: u32 = match env::var("ODOO_PORT") {
-        Ok(val) => val.parse().unwrap(),
-        Err(_) => 8069,
-    };
+
+    let client = OdooClient::new();
 
     let odoo = Odoo {
-        host: match env::var("ODOO_HOST") {
-            Ok(val) => val,
-            Err(_) => "localhost".to_owned(),
+        host: match client.base_url.host_str() {
+            Some(host) => host.to_owned(),
+            None => panic!("no host")
         },
-        port: port,
-        protocol: match port {
-            443 => "jsonrpc+ssl".to_owned(),
-            _ => "jsonrpc".to_owned(),
+        port: match client.base_url.port() {
+            Some(port) => port,
+            None => panic!("no port")
+        },
+        protocol: match client.base_url.scheme() {
+            "https" => "jsonrpc+ssl".to_owned(),
+            "http" => "jsonrpc".to_owned(),
+            other => panic!("unsupported scheme: {}", other)
         },
         version: "0.9".to_owned(),
     };
     println!("Odoo: {:?}", odoo);
     odoo.login("tec-528".to_owned(), "admin".to_owned(), "admin".to_owned());
 
-    let mut client = OdooApi::new();
-    let res: Value = client.login("tec-528", "admin", "admin").unwrap();
+    let mut api = OdooApi::new(client);
+    let res: SessionInfo = api.login("tec-528", "admin", "admin").unwrap();
     println!("login: res: {:#?}", res);
     println!("calling db list ...");
-    let dblist: Value = client.db_list().unwrap();
+    let dblist: Value = api.db_list().unwrap();
     println!("db_list: {:#?}", dblist);
     // println!("calling db dump ...");
     // let res = client.db_dump("diabeloop", "tec-528", "zip");
@@ -283,7 +377,7 @@ fn main() -> io::Result<()> {
     //     }
     // };
     println!("field get ...");
-    let res = client.object_fields_get("tec-528", 1, "admin", "stock.label");
+    let res = api.object_fields_get("tec-528", 1, "admin", "stock.label");
     match res {
         Ok(Value::Object(val)) => {
             for (key, _value) in val {
@@ -298,7 +392,7 @@ fn main() -> io::Result<()> {
         }
     };
 
-    let res = client.object_search(
+    let res = api.object_search(
         "tec-528",
         1,
         "admin",
@@ -317,7 +411,7 @@ fn main() -> io::Result<()> {
     //         println!("uuhh?");
     //     }
     // }
-    let res = client.object_read(
+    let res = api.object_read(
         "tec-528",
         1,
         "admin",
