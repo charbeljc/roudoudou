@@ -248,10 +248,10 @@ impl OdooApi {
             });
         let payload = self.cli.encode_call("call", params);
         let resp = self.cli.send_call(self.jsonrpc_url.as_str(), payload);
-        println!("create resp: {:#?}", resp);
+        println!("drop resp: {:#?}", resp);
         match resp {
-            Ok(res) => println!("create db: {}", res.text().unwrap()),
-            Err(res) => println!("error create db: {}", res)
+            Ok(res) => println!("drop db: {}", res.text().unwrap()),
+            Err(res) => println!("error drop db: {}", res)
         };
         Ok(json!({}))
     }
