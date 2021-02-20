@@ -23,7 +23,7 @@ use jsonrpc_client_http::HttpHandle;
 use jsonrpc_client_http::HttpTransport;
 
 use url::Url;
-use rudodoo::{odoo_url_from_env, SessionInfo, OdooClient, OdooApi, Odoo};
+use rudodoo::{odoo_url_from_env, SessionInfo, OdooClient, OdooApi};
 
 // #[derive(Debug, Serialize)]
 // pub struct RpcRequest<'a> {
@@ -298,25 +298,6 @@ fn main() -> io::Result<()> {
     dotenv().ok();
 
     let client = OdooClient::new();
-
-    let odoo = Odoo {
-        host: match client.base_url.host_str() {
-            Some(host) => host.to_owned(),
-            None => panic!("no host")
-        },
-        port: match client.base_url.port() {
-            Some(port) => port,
-            None => panic!("no port")
-        },
-        protocol: match client.base_url.scheme() {
-            "https" => "jsonrpc+ssl".to_owned(),
-            "http" => "jsonrpc".to_owned(),
-            other => panic!("unsupported scheme: {}", other)
-        },
-        version: "0.9".to_owned(),
-    };
-    println!("Odoo: {:?}", odoo);
-    odoo.login("tec-528".to_owned(), "admin".to_owned(), "admin".to_owned());
 
     let mut api = OdooApi::new(client);
     let res: SessionInfo = api.login("tec-528", "admin", "admin").unwrap();

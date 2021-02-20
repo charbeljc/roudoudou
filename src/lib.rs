@@ -272,11 +272,6 @@ impl OdooApi {
     }
 }
 
-impl Odoo {
-    fn login(&self, db: String, user: String, password: String) {
-        println!("login: db: {}, u: {}, pwd: {}", db, user, password);
-    }
-}
 /// Obtain Odoo Server URL from environment variables
 /// 
 /// You can use ODOO_URL or ODOO_HOST and ODOO_PORT.
