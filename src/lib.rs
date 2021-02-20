@@ -5,15 +5,15 @@ use std::env;
 use std::path::Path;
 use url::{ParseError, Url};
 
-use jsonrpc_client_core::{Error, call_method};
+use jsonrpc_client_core::{call_method, Error};
 use jsonrpc_client_http::HttpHandle;
 use jsonrpc_client_http::HttpTransport;
+use std::default::Default;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::io::BufWriter;
 use std::io::Cursor;
-use std::default::Default;
 
 use reqwest::blocking::Client;
 use reqwest::StatusCode;
@@ -24,7 +24,7 @@ pub struct VersionInfo {
     #[serde(rename = "server_serie")]
     pub server_serial: String,
     pub server_version: String,
-    server_version_info: Option<(u16, u16, u16, String, u16, String)>
+    server_version_info: Option<(u16, u16, u16, String, u16, String)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -55,10 +55,10 @@ struct RpcRequest<'a> {
 }
 
 #[derive(Debug, Deserialize)]
-struct RcpResponse {
+struct RpcResponse {
     jsonrpc: String,
     id: u32,
-    result: Value
+    result: Value,
 }
 
 const ODOO_SERVER_VERSION: &str = "/web/webclient/version_info";
@@ -88,13 +88,20 @@ impl OdooClient {
             params: params,
         }
     }
-    fn send_call(&self, endpoint: &str, payload: RpcRequest) -> reqwest::Result<reqwest::blocking::Response> {
+    fn send_call(
+        &self,
+        endpoint: &str,
+        payload: RpcRequest,
+    ) -> reqwest::Result<reqwest::blocking::Response> {
         // -> reqwest::Result<reqwest::Response> {
         let j = serde_json::to_string(&payload).unwrap();
         println!("to string: {:?}", j);
-        let res = self.http.post(endpoint)
-          .header("Content-Type", "application/json")
-          .body(j).send();
+        let res = self
+            .http
+            .post(endpoint)
+            .header("Content-Type", "application/json")
+            .body(j)
+            .send();
 
         res
     }
@@ -110,7 +117,7 @@ impl OdooClient {
 pub struct OdooApi {
     version_url: Url,
     login_url: Url,
-    login_handle: HttpHandle,
+    jsonrpc_url: Url,
     logout_handle: HttpHandle,
     jsonrpc_handle: HttpHandle,
     cli: OdooClient,
@@ -128,116 +135,89 @@ impl OdooApi {
             cli: cli,
             version_url: version_url.clone(),
             login_url: login_url.clone(),
-            login_handle: transport.handle(login_url.as_str()).unwrap(),
+            jsonrpc_url: jsonrpc_url.clone(),
             logout_handle: transport.handle(logout_url.as_str()).unwrap(),
             jsonrpc_handle: transport.handle(jsonrpc_url.as_str()).unwrap(),
+        }
+    }
+    // fn decode_response<T>(&mut self, resp)
+
+    fn decode_response<T: for<'de> Deserialize<'de>>(
+        &mut self,
+        repw: reqwest::Result<reqwest::blocking::Response>,
+    ) -> reqwest::Result<T> {
+        match repw {
+            Ok(resp) => {
+                println!("headers: {:#?}", resp.headers());
+                let rpc_resp: RpcResponse = serde_json::from_str(&resp.text().unwrap()).unwrap();
+                let res = rpc_resp.result;
+                println!("res: {:#?}", res);
+                let o: T = serde_json::from_value(res).unwrap();
+                Ok(o)
+            }
+            Err(err) => Err(err),
         }
     }
     pub fn version_info(&mut self) -> Result<VersionInfo, reqwest::Error> {
         let params = json!({});
         let payload = self.cli.encode_call("call", params);
-        let alt = self.cli.send_call(self.version_url.as_str(), payload);
-        let value = match alt {
-            Ok(resp) => {
-                println!("altt::: {:#?}",  resp);
-                let v: Value = serde_json::from_str(&resp.text().unwrap()).unwrap();
-                let rpc_resp: RcpResponse = serde_json::from_value(v).unwrap();
-                let res = rpc_resp.result;
-                println!("res: {:#?}", res);
-                let vi: VersionInfo = serde_json::from_value(res).unwrap();
-                println!("vi: {:#?}", vi);
-                Ok(vi)
-
-            },
-            Err(err) => Err(err)
-        };
-        value
+        self.decode_response::<VersionInfo>(self.cli.send_call(self.version_url.as_str(), payload))
     }
-    pub fn login(&mut self, db: &str, login: &str, password: &str) -> Result<SessionInfo, reqwest::Error> {
+
+    pub fn login(
+        &mut self,
+        db: &str,
+        login: &str,
+        password: &str,
+    ) -> Result<SessionInfo, reqwest::Error> {
         let params = json!({"db": db, "login": login, "password": password});
-        let payload = self.cli.encode_call("call", params.clone());
-        match self.cli.send_call(self.login_url.as_str(), payload) {
-            Ok(resp) => {
-                println!("altt::: {:#?}",  resp);
-                let v: Value = serde_json::from_str(&resp.text().unwrap()).unwrap();
-                let rpc_resp: RcpResponse = serde_json::from_value(v).unwrap();
-                let res = rpc_resp.result;
-                println!("res: {:#?}", res);
-                let si: SessionInfo = serde_json::from_value(res).unwrap();
-                println!("si: {:#?}", si);
-                Ok(si)
-              
-
-            },
-            Err(err) => Err(err)
-        }
+        let payload = self.cli.encode_call("call", params);
+        self.decode_response::<SessionInfo>(self.cli.send_call(self.login_url.as_str(), payload))
     }
 
- 
     pub fn logout(&mut self) -> Result<Value, Error> {
         call_method(&mut self.logout_handle, "call".to_owned(), json!({})).call()
     }
-    pub fn db_list(&mut self) -> Result<Value, Error> {
-        call_method(
-            &mut self.jsonrpc_handle,
-            "call".to_owned(),
-            json!({
-                "service": "db",
-                "method": "list",
-                "args": []
-            }),
-        )
-        .call()
+    pub fn db_list(&mut self) -> Result<Vec<String>, reqwest::Error> {
+        let params = json!({
+            "service": "db",
+            "method": "list",
+            "args": []
+        });
+        let payload = self.cli.encode_call("call", params);
+        self.decode_response::<Vec<String>>(self.cli.send_call(self.jsonrpc_url.as_str(), payload))
     }
     pub fn db_dump(
         &mut self,
         master_password: &str,
         db: &str,
         path: &str,
-    ) -> Result<(), io::Error> {
-        let result = call_method(
-            &mut self.jsonrpc_handle,
-            "call".to_owned(),
-            json!({
-                "service": "db",
-                "method": "dump",
-                "args": [master_password, db, "zip"]
-            }),
-        )
-        .call();
-        match result {
-            Ok(Value::String(val)) => {
-                // println!("decoding data:\n{:#?}", &val[0..1000]);
-                let f = File::create("dump.zip").unwrap();
-                let mut writer = BufWriter::new(f);
-                let wrapped_reader = Cursor::new(val);
-                println!("save file ...");
-                for line in wrapped_reader.lines() {
-                    //let data = base64::decode(line.as_bytes()).unwrap();
-                    match line {
-                        Ok(val) => {
-                            let data = base64::decode(val).unwrap();
-                            writer.write(&data)?;
-                        }
-                        Err(err) => {
-                            println!("err: {:#?}", err);
-                        }
-                    };
+    ) -> Result<(), reqwest::Error> {
+        let params = json!({
+            "service": "db",
+            "method": "dump",
+            "args": [master_password, db, "zip"]
+        });
+        let payload = self.cli.encode_call("call", params);
+        let data = self.decode_response::<String>(self.cli.send_call(self.jsonrpc_url.as_str(), payload)).unwrap();
+        let f = File::create(path).unwrap();
+        let mut writer = BufWriter::new(f);
+        let wrapped_reader = Cursor::new(data);
+        println!("save file ...");
+        for line in wrapped_reader.lines() {
+            match line {
+                Ok(val) => {
+                    let data = base64::decode(val).unwrap();
+                    writer.write(&data).unwrap();
+                },
+                Err(err) => {
+                    println!("err: {:#?}", err);
                 }
-                //let data = base64::decode(val).unwrap();
-                println!("done.");
-                Ok(())
-            }
-            Ok(_) => {
-                println!("Huu");
-                Err(io::Error::new(io::ErrorKind::Other, "Huu ..."))
-            }
-            Err(err) => {
-                println!("error: {:#?}", err);
-                Err(io::Error::new(io::ErrorKind::Other, err.to_string()))
             }
         }
+        Ok(())
     }
+
     pub fn db_create(
         &mut self,
         master_password: &str,
@@ -246,28 +226,34 @@ impl OdooApi {
         lang: &str,
         admin_password: &str,
     ) -> Result<Value, Error> {
-        call_method(
-            &mut self.jsonrpc_handle,
-            "call".to_owned(),
-            json!({
+        let params = json!({
                 "service": "db",
                 "method": "create_database",
                 "args": [master_password, db, demo, lang, admin_password]
-            }),
-        )
-        .call()
+            });
+        let payload = self.cli.encode_call("call", params);
+        let resp = self.cli.send_call(self.jsonrpc_url.as_str(), payload);
+        println!("create resp: {:#?}", resp);
+        match resp {
+            Ok(res) => println!("create db: {}", res.text().unwrap()),
+            Err(res) => println!("error create db: {}", res)
+        };
+        Ok(json!({}))
     }
     pub fn db_drop(&mut self, master_password: &str, db: &str) -> Result<Value, Error> {
-        call_method(
-            &mut self.jsonrpc_handle,
-            "call".to_owned(),
-            json!({
+        let params = json!({
                 "service": "db",
                 "method": "drop",
                 "args": [master_password, db]
-            }),
-        )
-        .call()
+            });
+        let payload = self.cli.encode_call("call", params);
+        let resp = self.cli.send_call(self.jsonrpc_url.as_str(), payload);
+        println!("create resp: {:#?}", resp);
+        match resp {
+            Ok(res) => println!("create db: {}", res.text().unwrap()),
+            Err(res) => println!("error create db: {}", res)
+        };
+        Ok(json!({}))
     }
     pub fn object_fields_get(
         &mut self,

@@ -25,41 +25,52 @@ fn main() -> io::Result<()> {
     println!("version: {:#?}", version);
     let res: SessionInfo = api.login("tec-528", "admin", "admin").unwrap();
     println!("login: res: {:#?}", res);
-    return Ok(());
     println!("calling db list ...");
-    let dblist: Value = api.db_list().unwrap();
+    let dblist = api.db_list().unwrap();
     println!("db_list: {:#?}", dblist);
-    println!("calling db dump ...");
-    match env::var("DB_PASSWORD") {
-        Ok(password) => {
-            let res = api.db_dump(&password, "tec-528", "dump.zip");
-            println!("res: {:?}", res);
-        },
-        Err(_) => {
-            println!("master password not set");
-        } 
+    // match env::var("DB_PASSWORD") {
+    //     Ok(password) => {
+    //         println!("calling db dump ...");
+    //         let res = api.db_dump(&password, "tec-528", "dump.zip");
+    //         println!("res: {:?}", res);
+    //     },
+    //     Err(_) => {
+    //         println!("master password not set");
+    //     } 
 
+    // };
+    println!("db drop ...");
+    let res = api.db_drop("diabeloop", "test2");
+    match res {
+        Ok(val) => {
+            println!("drop: {:#?}", val);
+        }
+        Err(err) => {
+            println!("err: {:#?}", err);
+        }
     };
-    // println!("db create ...");
-    // let res = client.db_create("diabeloop", "test2", false, "fr_FR", "admin");
-    // match res {
-    //     Ok(val) => {
-    //         println!("create: {:#?}", val);
-    //     }
-    //     Err(err) => {
-    //         println!("error: {:#?}", err);
-    //     }
-    // };
-    // println!("db drop ...");
-    // let res = client.db_drop("diabeloop", "test2");
-    // match res {
-    //     Ok(val) => {
-    //         println!("drop: {:#?}", val);
-    //     }
-    //     Err(err) => {
-    //         println!("err: {:#?}", err);
-    //     }
-    // };
+
+    println!("db create ...");
+    let res = api.db_create("diabeloop", "test2", false, "fr_FR", "admin");
+    match res {
+        Ok(val) => {
+            println!("create: {:#?}", val);
+        }
+        Err(err) => {
+            println!("error: {:#?}", err);
+        }
+    };
+    println!("db drop ...");
+    let res = api.db_drop("diabeloop", "test2");
+    match res {
+        Ok(val) => {
+            println!("drop: {:#?}", val);
+        }
+        Err(err) => {
+            println!("err: {:#?}", err);
+        }
+    };
+    return Ok(());
     println!("field get ...");
     let res = api.object_fields_get("tec-528", 1, "admin", "stock.label");
     match res {
