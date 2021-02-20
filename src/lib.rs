@@ -5,7 +5,7 @@ use std::env;
 use std::path::Path;
 use url::{ParseError, Url};
 
-use jsonrpc_client_core::{call_method};
+use jsonrpc_client_core::{Error, call_method};
 use jsonrpc_client_http::HttpHandle;
 use jsonrpc_client_http::HttpTransport;
 use std::fs::File;
