@@ -5,7 +5,7 @@ use std::env;
 use std::path::Path;
 use url::{ParseError, Url};
 
-use jsonrpc_client_core::{call_method, Error};
+use jsonrpc_client_core::{call_method};
 use jsonrpc_client_http::HttpHandle;
 use jsonrpc_client_http::HttpTransport;
 use std::fs::File;
@@ -13,6 +13,19 @@ use std::io;
 use std::io::prelude::*;
 use std::io::BufWriter;
 use std::io::Cursor;
+use std::default::Default;
+
+use reqwest::blocking::Client;
+use reqwest::StatusCode;
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct VersionInfo {
+    pub protocol_version: u16,
+    #[serde(rename = "server_serie")]
+    pub server_serial: String,
+    pub server_version: String,
+    server_version_info: Option<(u16, u16, u16, String, u16, String)>
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserContext {
@@ -41,6 +54,13 @@ struct RpcRequest<'a> {
     params: Value,
 }
 
+#[derive(Debug, Deserialize)]
+struct RcpResponse {
+    jsonrpc: String,
+    id: u32,
+    result: Value
+}
+
 const ODOO_SERVER_VERSION: &str = "/web/webclient/version_info";
 const ODOO_LOGIN: &str = "/web/session/authenticate";
 const ODOO_LOGOUT: &str = "/web/session/destroy";
@@ -57,7 +77,7 @@ impl OdooClient {
     pub fn new() -> Self {
         Self {
             base_url: odoo_url_from_env().unwrap(),
-            http: reqwest::blocking::Client::new(),
+            http: Client::new(),
         }
     }
     fn encode_call<'a>(&self, method: &'a str, params: Value) -> RpcRequest<'a> {
@@ -72,9 +92,11 @@ impl OdooClient {
         // -> reqwest::Result<reqwest::Response> {
         let j = serde_json::to_string(&payload).unwrap();
         println!("to string: {:?}", j);
-        let res = self.http.post(endpoint).body(j).send()?;
+        let res = self.http.post(endpoint)
+          .header("Content-Type", "application/json")
+          .body(j).send();
 
-        Ok(res)
+        res
     }
     fn decode_response(&self, response: reqwest::Response) -> Value {
         println!("decode_response: {:?}", response);
@@ -86,8 +108,8 @@ impl OdooClient {
 }
 
 pub struct OdooApi {
+    version_url: Url,
     login_url: Url,
-    version_handle: HttpHandle,
     login_handle: HttpHandle,
     logout_handle: HttpHandle,
     jsonrpc_handle: HttpHandle,
@@ -104,29 +126,54 @@ impl OdooApi {
 
         OdooApi {
             cli: cli,
+            version_url: version_url.clone(),
             login_url: login_url.clone(),
-            version_handle: transport.handle(version_url.as_str()).unwrap(),
             login_handle: transport.handle(login_url.as_str()).unwrap(),
             logout_handle: transport.handle(logout_url.as_str()).unwrap(),
             jsonrpc_handle: transport.handle(jsonrpc_url.as_str()).unwrap(),
         }
     }
-    pub fn login(&mut self, db: &str, login: &str, password: &str) -> Result<SessionInfo, Error> {
+    pub fn version_info(&mut self) -> Result<VersionInfo, reqwest::Error> {
+        let params = json!({});
+        let payload = self.cli.encode_call("call", params);
+        let alt = self.cli.send_call(self.version_url.as_str(), payload);
+        let value = match alt {
+            Ok(resp) => {
+                println!("altt::: {:#?}",  resp);
+                let v: Value = serde_json::from_str(&resp.text().unwrap()).unwrap();
+                let rpc_resp: RcpResponse = serde_json::from_value(v).unwrap();
+                let res = rpc_resp.result;
+                println!("res: {:#?}", res);
+                let vi: VersionInfo = serde_json::from_value(res).unwrap();
+                println!("vi: {:#?}", vi);
+                Ok(vi)
+
+            },
+            Err(err) => Err(err)
+        };
+        value
+    }
+    pub fn login(&mut self, db: &str, login: &str, password: &str) -> Result<SessionInfo, reqwest::Error> {
         let params = json!({"db": db, "login": login, "password": password});
         let payload = self.cli.encode_call("call", params.clone());
-        println!("login payload: {:?}", payload);
-        println!("raw: {}", serde_json::to_string_pretty(&payload).unwrap());
+        match self.cli.send_call(self.login_url.as_str(), payload) {
+            Ok(resp) => {
+                println!("altt::: {:#?}",  resp);
+                let v: Value = serde_json::from_str(&resp.text().unwrap()).unwrap();
+                let rpc_resp: RcpResponse = serde_json::from_value(v).unwrap();
+                let res = rpc_resp.result;
+                println!("res: {:#?}", res);
+                let si: SessionInfo = serde_json::from_value(res).unwrap();
+                println!("si: {:#?}", si);
+                Ok(si)
+              
 
-        let result = call_method(&mut self.login_handle, "call".to_owned(), params).call();
-        let session = match result {
-            Ok(value) => Ok(serde_json::from_value::<SessionInfo>(value).unwrap()),
-            Err(err) => Err(err),
-        };
-        println!("session: {:?}", session);
-        let alt = self.cli.send_call(self.login_url.as_str(), payload);
-        println!("alt: {:?}", alt.unwrap());
-        session
+            },
+            Err(err) => Err(err)
+        }
     }
+
+ 
     pub fn logout(&mut self) -> Result<Value, Error> {
         call_method(&mut self.logout_handle, "call".to_owned(), json!({})).call()
     }

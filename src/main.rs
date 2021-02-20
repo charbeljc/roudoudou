@@ -20,9 +20,13 @@ fn main() -> io::Result<()> {
     let client = OdooClient::new();
 
     let mut api = OdooApi::new(client);
-    let res: SessionInfo = api.login("tec-528", "admin", "admin").unwrap();
-    println!("login: res: {:#?}", res);
+
+    let version = api.version_info().unwrap();
+    println!("version: {:#?}", version);
+    // let res: SessionInfo = api.login("tec-528", "admin", "admin").unwrap();
+    // println!("login: res: {:#?}", res);
     println!("calling db list ...");
+    return Ok(());
     let dblist: Value = api.db_list().unwrap();
     println!("db_list: {:#?}", dblist);
     println!("calling db dump ...");
