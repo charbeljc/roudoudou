@@ -1,14 +1,18 @@
-use std::env;
-use url::{ParseError, Url};
-use serde::{Serialize,Deserialize};
-use std::path::Path;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serde_json::{Map, Number, Value};
+use serde_json::Value;
+use std::env;
+use std::path::Path;
+use url::{ParseError, Url};
 
 use jsonrpc_client_core::{call_method, Error};
 use jsonrpc_client_http::HttpHandle;
 use jsonrpc_client_http::HttpTransport;
-
+use std::fs::File;
+use std::io;
+use std::io::prelude::*;
+use std::io::BufWriter;
+use std::io::Cursor;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserContext {
@@ -29,9 +33,6 @@ pub struct SessionInfo {
     username: String,
 }
 
-
-
-
 #[derive(Debug, Serialize)]
 struct RpcRequest<'a> {
     jsonrpc: &'a str,
@@ -49,35 +50,31 @@ const JSONRPC_20: &str = "2.0";
 
 pub struct OdooClient {
     pub base_url: Url,
-    http: reqwest::Client,
+    http: reqwest::blocking::Client,
 }
 
 impl OdooClient {
     pub fn new() -> Self {
-        Self { base_url: odoo_url_from_env().unwrap(),
-        http: reqwest::Client::new() }
+        Self {
+            base_url: odoo_url_from_env().unwrap(),
+            http: reqwest::blocking::Client::new(),
+        }
     }
-
-}
-
-trait OdooRpc {
     fn encode_call<'a>(&self, method: &'a str, params: Value) -> RpcRequest<'a> {
         RpcRequest {
             jsonrpc: JSONRPC_20,
             method: method,
             id: 1,
-            params: params
+            params: params,
         }
     }
-    fn send_call(&self, endpoint: &str, payload: RpcRequest); // -> reqwest::Result<reqwest::Response>;
-    fn decode_response(&self, response: reqwest::Response) -> Value;
-    fn download_base64(&self, response: reqwest::Response, path: &Path);
-}
-
-impl OdooRpc for OdooClient {
-    fn send_call(&self, endpoint: &str, payload: RpcRequest) { // -> reqwest::Result<reqwest::Response> {
+    fn send_call(&self, endpoint: &str, payload: RpcRequest) -> reqwest::Result<reqwest::blocking::Response> {
+        // -> reqwest::Result<reqwest::Response> {
         let j = serde_json::to_string(&payload).unwrap();
         println!("to string: {:?}", j);
+        let res = self.http.post(endpoint).body(j).send()?;
+
+        Ok(res)
     }
     fn decode_response(&self, response: reqwest::Response) -> Value {
         println!("decode_response: {:?}", response);
@@ -88,8 +85,8 @@ impl OdooRpc for OdooClient {
     }
 }
 
-
 pub struct OdooApi {
+    login_url: Url,
     version_handle: HttpHandle,
     login_handle: HttpHandle,
     logout_handle: HttpHandle,
@@ -99,8 +96,6 @@ pub struct OdooApi {
 
 impl OdooApi {
     pub fn new(cli: OdooClient) -> Self {
-
-
         let transport = HttpTransport::new().standalone().unwrap();
         let version_url = cli.base_url.join(ODOO_SERVER_VERSION).unwrap();
         let login_url = cli.base_url.join(ODOO_LOGIN).unwrap();
@@ -109,6 +104,7 @@ impl OdooApi {
 
         OdooApi {
             cli: cli,
+            login_url: login_url.clone(),
             version_handle: transport.handle(version_url.as_str()).unwrap(),
             login_handle: transport.handle(login_url.as_str()).unwrap(),
             logout_handle: transport.handle(logout_url.as_str()).unwrap(),
@@ -117,23 +113,18 @@ impl OdooApi {
     }
     pub fn login(&mut self, db: &str, login: &str, password: &str) -> Result<SessionInfo, Error> {
         let params = json!({"db": db, "login": login, "password": password});
-        
         let payload = self.cli.encode_call("call", params.clone());
         println!("login payload: {:?}", payload);
         println!("raw: {}", serde_json::to_string_pretty(&payload).unwrap());
 
-        let result = call_method(
-            &mut self.login_handle,
-            "call".to_owned(),
-            params
-        )
-        .call();
+        let result = call_method(&mut self.login_handle, "call".to_owned(), params).call();
         let session = match result {
-
             Ok(value) => Ok(serde_json::from_value::<SessionInfo>(value).unwrap()),
-            Err(err) => Err(err)
+            Err(err) => Err(err),
         };
         println!("session: {:?}", session);
+        let alt = self.cli.send_call(self.login_url.as_str(), payload);
+        println!("alt: {:?}", alt.unwrap());
         session
     }
     pub fn logout(&mut self) -> Result<Value, Error> {
@@ -155,18 +146,50 @@ impl OdooApi {
         &mut self,
         master_password: &str,
         db: &str,
-        format: &str,
-    ) -> Result<Value, Error> {
-        call_method(
+        path: &str,
+    ) -> Result<(), io::Error> {
+        let result = call_method(
             &mut self.jsonrpc_handle,
             "call".to_owned(),
             json!({
                 "service": "db",
                 "method": "dump",
-                "args": [master_password, db, format]
+                "args": [master_password, db, "zip"]
             }),
         )
-        .call()
+        .call();
+        match result {
+            Ok(Value::String(val)) => {
+                // println!("decoding data:\n{:#?}", &val[0..1000]);
+                let f = File::create("dump.zip").unwrap();
+                let mut writer = BufWriter::new(f);
+                let wrapped_reader = Cursor::new(val);
+                println!("save file ...");
+                for line in wrapped_reader.lines() {
+                    //let data = base64::decode(line.as_bytes()).unwrap();
+                    match line {
+                        Ok(val) => {
+                            let data = base64::decode(val).unwrap();
+                            writer.write(&data)?;
+                        }
+                        Err(err) => {
+                            println!("err: {:#?}", err);
+                        }
+                    };
+                }
+                //let data = base64::decode(val).unwrap();
+                println!("done.");
+                Ok(())
+            }
+            Ok(_) => {
+                println!("Huu");
+                Err(io::Error::new(io::ErrorKind::Other, "Huu ..."))
+            }
+            Err(err) => {
+                println!("error: {:#?}", err);
+                Err(io::Error::new(io::ErrorKind::Other, err.to_string()))
+            }
+        }
     }
     pub fn db_create(
         &mut self,
@@ -273,9 +296,9 @@ impl OdooApi {
 }
 
 /// Obtain Odoo Server URL from environment variables
-/// 
+///
 /// You can use ODOO_URL or ODOO_HOST and ODOO_PORT.
-/// ODOO_URL takes precedence. 
+/// ODOO_URL takes precedence.
 pub fn odoo_url_from_env() -> Result<Url, ParseError> {
     match env::var("ODOO_URL") {
         Ok(url) => Url::parse(&url),
@@ -289,17 +312,15 @@ pub fn odoo_url_from_env() -> Result<Url, ParseError> {
                 Err(_) => Ok(8069),
             }?;
             let scheme = if odoo_port == 443 { "https" } else { "http" };
-            Url::parse(
-                &format!(
-                    "{}:{}{}",
-                    scheme,
-                    odoo_host,
-                    match odoo_port {
-                        443 | 80 => "".to_owned(),
-                        port => format!(":{}", port),
-                    }
-                )
-            )
+            Url::parse(&format!(
+                "{}:{}{}",
+                scheme,
+                odoo_host,
+                match odoo_port {
+                    443 | 80 => "".to_owned(),
+                    port => format!(":{}", port),
+                }
+            ))
         }
     }
 }
@@ -311,14 +332,11 @@ extern crate lazy_static;
 #[cfg(test)]
 mod tests {
     use crate::odoo_url_from_env;
-    use url::Url;
     use std::env;
     use std::sync::{Arc, Mutex};
-    
+    use url::Url;
     lazy_static! {
-        static ref LOCK: Arc<Mutex<u32>> = {
-            Arc::new(Mutex::new(0))
-        };
+        static ref LOCK: Arc<Mutex<u32>> = { Arc::new(Mutex::new(0)) };
     }
 
     #[test]
@@ -336,7 +354,6 @@ mod tests {
     fn test_odoo_url_precedence() {
         let lock = Arc::clone(&LOCK);
         let mut _data = lock.lock().unwrap();
-        
         env::set_var("ODOO_URL", "http://example.com");
         env::set_var("ODOO_HOST", "localhost");
         env::set_var("ODOO_PORT", "8069");
@@ -365,7 +382,7 @@ mod tests {
         env::set_var("ODOO_HOST", "example.com");
         env::set_var("ODOO_PORT", "80");
 
-        assert_eq!(odoo_url_from_env(), Url::parse("http://example.com"));        
+        assert_eq!(odoo_url_from_env(), Url::parse("http://example.com"));
     }
 
     #[test]
@@ -377,7 +394,7 @@ mod tests {
         env::set_var("ODOO_HOST", "example.com");
         env::set_var("ODOO_PORT", "443");
 
-        assert_eq!(odoo_url_from_env(), Url::parse("https://example.com"));        
+        assert_eq!(odoo_url_from_env(), Url::parse("https://example.com"));
     }
 
     #[test]

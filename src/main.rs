@@ -1,29 +1,18 @@
-extern crate base64;
-extern crate dotenv;
-extern crate jsonrpc_client_core;
-extern crate jsonrpc_client_http;
-extern crate serde_json;
-extern crate url;
-extern crate reqwest;
+// extern crate base64;
+// extern crate dotenv;
+// extern crate jsonrpc_client_core;
+// extern crate jsonrpc_client_http;
+// extern crate serde_json;
+// extern crate url;
+// extern crate reqwest;
 
 use dotenv::dotenv;
 use std::env;
-// use std::fs::File;
 use std::io;
-// use std::io::prelude::*;
-// use std::io::BufWriter;
-// use std::io::Cursor;
-
-// use serde::{Serialize,Deserialize};
 pub use serde_json::json;
 pub use serde_json::{Map, Number, Value};
 
-use jsonrpc_client_core::{call_method, Error};
-use jsonrpc_client_http::HttpHandle;
-use jsonrpc_client_http::HttpTransport;
-
-use url::Url;
-use rudodoo::{odoo_url_from_env, SessionInfo, OdooClient, OdooApi};
+use rudodoo::{SessionInfo, OdooClient, OdooApi};
 
 fn main() -> io::Result<()> {
     dotenv().ok();
@@ -36,37 +25,17 @@ fn main() -> io::Result<()> {
     println!("calling db list ...");
     let dblist: Value = api.db_list().unwrap();
     println!("db_list: {:#?}", dblist);
-    // println!("calling db dump ...");
-    // let res = client.db_dump("diabeloop", "tec-528", "zip");
-    // match res {
-    //     Ok(Value::String(val)) => {
-    //         // println!("decoding data:\n{:#?}", &val[0..1000]);
-    //         let f = File::create("dump.zip")?;
-    //         let mut writer = BufWriter::new(f);
-    //         let wrapped_reader = Cursor::new(val);
-    //         println!("save file ...");
-    //         for line in wrapped_reader.lines() {
-    //             //let data = base64::decode(line.as_bytes()).unwrap();
-    //             match line {
-    //                 Ok(val) => {
-    //                     let data = base64::decode(val).unwrap();
-    //                     writer.write(&data)?;
-    //                 }
-    //                 Err(err) => {
-    //                     println!("err: {:#?}", err);
-    //                 }
-    //             };
-    //         }
-    //         //let data = base64::decode(val).unwrap();
-    //         println!("done.");
-    //     }
-    //     Ok(_) => {
-    //         println!("Huu");
-    //     }
-    //     Err(err) => {
-    //         println!("error: {:#?}", err);
-    //     }
-    // }
+    println!("calling db dump ...");
+    match env::var("DB_PASSWORD") {
+        Ok(password) => {
+            let res = api.db_dump(&password, "tec-528", "dump.zip");
+            println!("res: {:?}", res);
+        },
+        Err(_) => {
+            println!("master password not set");
+        } 
+
+    };
     // println!("db create ...");
     // let res = client.db_create("diabeloop", "test2", false, "fr_FR", "admin");
     // match res {
