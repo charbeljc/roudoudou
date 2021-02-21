@@ -29,7 +29,7 @@ fn main() -> io::Result<()> {
     let dblist = api.db_list().unwrap();
     println!("db_list: {:#?}", dblist);
     println!("field get ...");
-    let res = api.object_fields_get("tec-528", 1, "admin", "stock.label");
+    let res = api.object_fields_get("tec-528", 1, "admin", "res.users");
     match res {
         Ok(obj) => {
             println!("Object: {}", obj.name);
@@ -40,9 +40,11 @@ fn main() -> io::Result<()> {
                 println!("required: {} = {}", attr, desc.type_);
                 println!("{:#?}", desc);
             }
-        }
-        Ok(_) => {
-            println!("uuhh");
+            for (attr, desc) in obj.get_relational_fields() {
+                println!("relational: {} = {}", attr, desc.type_);
+                println!("{:#?}", desc);
+
+            }
         }
         Err(why) => {
             println!("err: {:#?}", why);
@@ -84,7 +86,7 @@ fn main() -> io::Result<()> {
     match res {
         Ok(Value::Array(val)) => {
             for item in val {
-                println!("item: {:#?}", item);
+               // println!("item: {:?}", item);
             }
         }
         _ => {
@@ -108,7 +110,7 @@ fn main() -> io::Result<()> {
             };
 
             println!("db create ...");
-            let res = api.db_create("diabeloop", "test2", false, "fr_FR", "admin");
+            let res = api.db_create(&password, "test2", false, "fr_FR", "admin");
             match res {
                 Ok(val) => {
                     println!("create: {:#?}", val);
@@ -118,7 +120,7 @@ fn main() -> io::Result<()> {
                 }
             };
             println!("db drop ...");
-            let res = api.db_drop("diabeloop", "test2");
+            let res = api.db_drop(&password, "test2");
             match res {
                 Ok(val) => {
                     println!("drop: {:#?}", val);
@@ -129,9 +131,10 @@ fn main() -> io::Result<()> {
             };
         }
         Err(_) => {
-            println!("master password not set");
+            println!("master password not set (use env variable DB_PASSWORD)");
         }
     }
+
 
     match api.logout() {
         Ok(res) => println!("ok, logged out: {}", res),

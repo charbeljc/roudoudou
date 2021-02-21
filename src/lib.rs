@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_json::Map;
 use serde_json::Value;
 use std::env;
-use std::path::Path;
 use url::{ParseError, Url};
 
 use std::default::Default;
@@ -17,7 +17,12 @@ use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header;
 use reqwest::Error;
-use reqwest::StatusCode;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum OdooOption<T> {
+    Some(T),
+    Unset(bool),
+}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -47,12 +52,12 @@ pub struct SessionInfo {
     username: String,
 }
 /// Odoo field descriptor
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct FieldDescriptor {
     pub change_default: bool,
     pub company_dependent: bool,
     pub depends: Vec<String>,
-    pub help: String,
+    pub help: Value,
     pub manual: bool,
     pub readonly: bool,
     pub required: bool,
@@ -80,11 +85,20 @@ impl ObjectDescriptor {
             .map(|(name, desc)| (name.clone(), desc))
             .collect()
     }
-    pub fn get_required_fields(&self) -> Vec<(String, &FieldDescriptor)> {
+    pub fn get_required_fields(&self) -> Vec<(&String, &FieldDescriptor)> {
         self.fields
             .iter()
             .filter(|(_, desc)| desc.required)
-            .map(|(name, desc)| (name.clone(), desc))
+            .map(|(name, desc)| (name, desc))
+            .collect()
+    }
+    pub fn get_relational_fields(&self) -> Vec<(&String, &FieldDescriptor)> {
+        self.fields
+            .iter()
+            .filter(|(_, desc)| match desc.type_.as_str() {
+                "one2many" | "many2one" | "many2many" => true,
+                _ => false,
+            })
             .collect()
     }
 }
@@ -125,10 +139,7 @@ impl OdooRpc {
     pub fn new() -> Self {
         OdooRpc {
             base_url: odoo_url_from_env().unwrap(),
-            http: Client::builder()
-            .cookie_store(true)
-            .build()
-            .unwrap(),
+            http: Client::builder().cookie_store(true).build().unwrap(),
         }
     }
     fn encode_query<'a>(&self, method: &'a str, params: Value) -> RpcRequest<'a> {
@@ -162,7 +173,7 @@ impl OdooRpc {
                     println!("VAL: {:#?}", val);
                 }
                 let rpc_resp: RpcResponse = serde_json::from_str(&resp.text().unwrap()).unwrap();
-                let res = rpc_resp.result;
+                let res: Value = rpc_resp.result;
                 // println!("res: {:#?}", res);
                 let o: T = serde_json::from_value(res).unwrap();
                 Ok(o)
@@ -324,19 +335,63 @@ impl OdooApi {
             "args": [db, uid, login, object, "fields_get"]
         });
         let payload = self.cli.encode_query("call", params);
-        let fields = self
-            .cli
-            .decode_response::<BTreeMap<String, FieldDescriptor>>(
-                self.cli.send_call(self.jsonrpc_url.as_str(), payload),
-            );
+        let resp = self.cli.send_call(self.jsonrpc_url.as_str(), payload);
+        println!(r#"resp: {:#?}"#, resp);
+        let mut fields = BTreeMap::<String, FieldDescriptor>::new();
 
-        match fields {
-            Ok(fields) => Ok(ObjectDescriptor {
-                name: object.to_owned(),
-                fields: fields,
-            }),
-            Err(err) => Err(err),
+        let res = self
+            .cli
+            .decode_response::<Map<String, Value>>(resp)
+            .unwrap();
+        for (attr, value) in res.iter() {
+            let desc = serde_json::from_value(value.to_owned());
+            match desc {
+                Ok(desc) => {
+                    println!("{} = {:#?}\n", attr, desc);
+                    fields.insert(attr.to_owned(), desc);
+                }
+                Err(err) => {
+                    if let Value::Object(obj) = value.to_owned() {
+                        if let Some(ro) = obj.get("readonly") {
+                            let ro: bool = match ro {
+                                Value::Number(n) => {
+                                    if n.as_i64() == Some(0) {
+                                        false
+                                    } else {
+                                        true
+                                    }
+                                }
+                                _ => false,
+                            };
+                            let mut changed = value.clone();
+                            println!("RO: {:?}", ro);
+                            changed["readonly"] = json!(ro);
+                            let desc = serde_json::from_value(changed).unwrap();
+                            println!("{} = {:#?}\n", attr, desc);
+                            fields.insert(attr.to_owned(), desc);
+                        } else {
+                            println!(
+                                "ERROR: Could not get field descriptor for {}: {}",
+                                attr, err
+                            );
+                            println!("{}\n\n", serde_json::to_string_pretty(value).unwrap());
+                        }
+                    }
+                }
+            };
         }
+
+        // match fields {
+        //     Ok(fields) => Ok(ObjectDescriptor {
+        //         name: object.to_owned(),
+        //         fields: fields,
+        //     }),
+        //     Err(err) => Err(err),
+        // }
+        Ok(ObjectDescriptor {
+            name: object.to_owned(),
+            fields,
+        })
     }
     pub fn object_search(
         &mut self,
