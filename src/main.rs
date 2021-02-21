@@ -19,7 +19,7 @@ fn main() -> io::Result<()> {
 
     let rpc = OdooRpc::new();
 
-    let mut api = OdooApi::new(rpc);
+    let api = OdooApi::new(rpc);
 
     let version = api.version_info().unwrap();
     println!("version: {:#?}", version);
@@ -32,19 +32,8 @@ fn main() -> io::Result<()> {
     let res = api.object_fields_get("tec-528", 1, "admin", "res.users");
     match res {
         Ok(obj) => {
-            println!("Object: {}", obj.name);
-            for (attr, desc) in obj.get_searchable_fields() {
-                println!("search: {} = {}", attr, desc.type_);
-            }
-            for (attr, desc) in obj.get_required_fields() {
-                println!("required: {} = {}", attr, desc.type_);
-                println!("{:#?}", desc);
-            }
-            for (attr, desc) in obj.get_relational_fields() {
-                println!("relational: {} = {}", attr, desc.type_);
-                println!("{:#?}", desc);
-
-            }
+            // obj.show();
+            println!("{}", obj.name);
         }
         Err(why) => {
             println!("err: {:#?}", why);
@@ -75,24 +64,57 @@ fn main() -> io::Result<()> {
         "stock.label",
         ids, // json!([1024, 1025, 1026])
         [
-            "name",
-            "product_tag_ids",
-            "is_terminal",
-            "location_id",
-            "state",
+            "name".to_owned(),
+            "product_tag_ids".to_owned(),
+            "is_terminal".to_owned(),
+            "location_id".to_owned(),
+            "state".to_owned(),
         ]
         .to_vec(),
     );
     match res {
         Ok(Value::Array(val)) => {
-            for item in val {
-               // println!("item: {:?}", item);
+            for _item in val {
+                // println!("item: {:?}", item);
             }
         }
         _ => {
             println!("uhh?");
         }
     }
+
+    let model = api.get_model("res.users").unwrap();
+    let users = match model.search(json!([("id", ">", 0), ("id", "<", 10)])) {
+        Ok(a) => model.browse(a),
+        _ => unreachable!(),
+    }
+    .unwrap();
+    println!("XXX: users: {:?}", users);
+
+    let model = api.get_model("ir.module.module").unwrap();
+    let ids = model.search(json!([("name", "=", "mrp_fixes")])).unwrap();
+    let module = model.browse(ids).unwrap();
+    println!("module: {:?}", module);
+    //println!("module data: {:#?}", module.data);
+    println!("module name: {:?}", module.attr("name"));
+
+    let model = api.get_model("stock.label").unwrap();
+    let ids = model
+        .search(json!([("name", "=", "352719110488433")]))
+        .unwrap();
+    let term = model.browse(ids).unwrap();
+    println!("terminal: {:?}", term);
+    println!(
+        "name: {:?} is_terminal: {:?} is_diabeloop: {:?}",
+        term.attr("name"),
+        term.attr("is_terminal"),
+        term.attr("is_diabeloop")
+    );
+    let update = json!({"os": {"version": "0.1.0", "apk": "foobar.apk"}});
+
+    let res = term.call("servicing_ota", json!(update.to_string()), None);
+    println!("servicing_ota result: {:?}", res);
+
     match env::var("DB_PASSWORD") {
         Ok(password) => {
             println!("calling db dump ...");
@@ -134,7 +156,6 @@ fn main() -> io::Result<()> {
             println!("master password not set (use env variable DB_PASSWORD)");
         }
     }
-
 
     match api.logout() {
         Ok(res) => println!("ok, logged out: {}", res),
