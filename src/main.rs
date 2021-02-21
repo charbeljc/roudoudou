@@ -12,7 +12,7 @@ pub use serde_json::{Map, Number, Value};
 use std::env;
 use std::io;
 
-use rudodoo::{OdooApi, OdooRpc, SessionInfo};
+use roudoudou::{OdooApi, OdooRpc, SessionInfo};
 
 fn main() -> io::Result<()> {
     dotenv().ok();

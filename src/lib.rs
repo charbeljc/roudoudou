@@ -124,7 +124,7 @@ impl ObjectDescriptor {
     }
 }
 #[derive(Debug, Serialize)]
-struct RpcRequest<'a> {
+pub struct RpcRequest<'a> {
     jsonrpc: &'a str,
     method: &'a str,
     id: u32,
@@ -132,13 +132,13 @@ struct RpcRequest<'a> {
 }
 
 #[derive(Debug, Deserialize)]
-struct RpcResponse {
+pub struct RpcResponse {
     jsonrpc: String,
     id: u32,
     result: Value,
 }
 #[derive(Debug, Deserialize)]
-struct RpcError {
+pub struct RpcError {
     jsonrpc: String,
     id: u32,
     result: Value,
@@ -164,7 +164,7 @@ impl OdooRpc {
             http: Client::builder().cookie_store(true).build().unwrap(),
         }
     }
-    fn encode_query<'a>(&self, method: &'a str, params: Value) -> RpcRequest<'a> {
+    pub fn encode_query<'a>(&self, method: &'a str, params: Value) -> RpcRequest<'a> {
         RpcRequest {
             jsonrpc: JSONRPC_20,
             method: method,
@@ -172,7 +172,7 @@ impl OdooRpc {
             params: params,
         }
     }
-    fn send_call(&self, endpoint: &str, payload: RpcRequest) -> reqwest::Result<Response> {
+    pub fn send_call(&self, endpoint: &str, payload: RpcRequest) -> reqwest::Result<Response> {
         let j = serde_json::to_string(&payload).unwrap();
         let req = self
             .http
@@ -183,7 +183,7 @@ impl OdooRpc {
         req.send()
     }
 
-    fn decode_response<T: for<'de> Deserialize<'de>>(
+    pub fn decode_response<T: for<'de> Deserialize<'de>>(
         &self,
         repw: reqwest::Result<Response>,
     ) -> reqwest::Result<T> {
