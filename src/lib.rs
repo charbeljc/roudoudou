@@ -172,7 +172,7 @@ impl OdooRpc {
             params: params,
         }
     }
-    pub fn send_call(&self, endpoint: &str, payload: RpcRequest) -> reqwest::Result<Response> {
+    pub fn send_payload(&self, endpoint: &str, payload: RpcRequest) -> reqwest::Result<Response> {
         let j = serde_json::to_string(&payload).unwrap();
         let req = self
             .http
@@ -307,7 +307,7 @@ impl OdooApi {
         let params = json!({});
         let payload = self.cli.encode_query("call", params);
         self.cli
-            .decode_response::<VersionInfo>(self.cli.send_call(self.version_url.as_str(), payload))
+            .decode_response::<VersionInfo>(self.cli.send_payload(self.version_url.as_str(), payload))
     }
 
     pub fn login(
@@ -319,13 +319,13 @@ impl OdooApi {
         let params = json!({"db": db, "login": login, "password": password});
         let payload = self.cli.encode_query("call", params);
         self.cli
-            .decode_response::<SessionInfo>(self.cli.send_call(self.login_url.as_str(), payload))
+            .decode_response::<SessionInfo>(self.cli.send_payload(self.login_url.as_str(), payload))
     }
 
     pub fn logout(&self) -> Result<Value, reqwest::Error> {
         let params = json!({});
         let payload = self.cli.encode_query("call", params);
-        let resp = self.cli.send_call(self.logout_url.as_str(), payload);
+        let resp = self.cli.send_payload(self.logout_url.as_str(), payload);
         match resp {
             Ok(resp) => {
                 let data = resp.text().unwrap();
@@ -334,7 +334,7 @@ impl OdooApi {
             }
             Err(err) => Err(err),
         }
-        //self.decode_response::<Value>(self.cli.send_call(self.logout_url.as_str(), payload))
+        //self.decode_response::<Value>(self.cli.send_payload(self.logout_url.as_str(), payload))
     }
     pub fn db_list(&self) -> Result<Vec<String>, reqwest::Error> {
         let params = json!({
@@ -344,7 +344,7 @@ impl OdooApi {
         });
         let payload = self.cli.encode_query("call", params);
         self.cli
-            .decode_response::<Vec<String>>(self.cli.send_call(self.jsonrpc_url.as_str(), payload))
+            .decode_response::<Vec<String>>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
     }
     pub fn db_dump(
         &self,
@@ -360,7 +360,7 @@ impl OdooApi {
         let payload = self.cli.encode_query("call", params);
         let data = self
             .cli
-            .decode_response::<String>(self.cli.send_call(self.jsonrpc_url.as_str(), payload))
+            .decode_response::<String>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
             .unwrap();
         let f = File::create(path).unwrap();
         let mut writer = BufWriter::new(f);
@@ -393,7 +393,7 @@ impl OdooApi {
             "args": [master_password, db, demo, lang, admin_password]
         });
         let payload = self.cli.encode_query("call", params);
-        let resp = self.cli.send_call(self.jsonrpc_url.as_str(), payload);
+        let resp = self.cli.send_payload(self.jsonrpc_url.as_str(), payload);
         println!("create resp: {:#?}", resp);
         match resp {
             Ok(res) => println!("create db: {}", res.text().unwrap()),
@@ -408,7 +408,7 @@ impl OdooApi {
             "args": [master_password, db]
         });
         let payload = self.cli.encode_query("call", params);
-        let resp = self.cli.send_call(self.jsonrpc_url.as_str(), payload);
+        let resp = self.cli.send_payload(self.jsonrpc_url.as_str(), payload);
         println!("drop resp: {:#?}", resp);
         match resp {
             Ok(res) => println!("drop db: {}", res.text().unwrap()),
@@ -436,7 +436,7 @@ impl OdooApi {
             "args": [db, uid, login, object, "fields_get"]
         });
         let payload = self.cli.encode_query("call", params);
-        let resp = self.cli.send_call(self.jsonrpc_url.as_str(), payload);
+        let resp = self.cli.send_payload(self.jsonrpc_url.as_str(), payload);
         //println!(r#"resp: {:#?}"#, resp);
         let mut fields = BTreeMap::<String, FieldDescriptor>::new();
 
@@ -509,7 +509,7 @@ impl OdooApi {
         });
         let payload = self.cli.encode_query("call", params);
         self.cli
-            .decode_response::<Vec<u32>>(self.cli.send_call(self.jsonrpc_url.as_str(), payload))
+            .decode_response::<Vec<u32>>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
     }
     pub fn object_read(
         &self,
@@ -535,7 +535,7 @@ impl OdooApi {
         });
         let payload = self.cli.encode_query("call", params);
         self.cli
-            .decode_response::<Value>(self.cli.send_call(self.jsonrpc_url.as_str(), payload))
+            .decode_response::<Value>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
     }
     pub fn object_call(
         &self,
@@ -563,7 +563,7 @@ impl OdooApi {
         });
         let payload = self.cli.encode_query("call", params);
         self.cli
-            .decode_response::<Value>(self.cli.send_call(self.jsonrpc_url.as_str(), payload))
+            .decode_response::<Value>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
     }}
 
 /// Obtain Odoo Server URL from environment variables
