@@ -45,7 +45,7 @@ pub struct SessionInfo {
     user_context: UserContext,
     username: String,
 }
-/// Odoo field descriptor
+/// raw Odoo field descriptor
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct FieldDescriptor {
     pub change_default: bool,
@@ -62,7 +62,7 @@ pub struct FieldDescriptor {
     #[serde(rename = "type")]
     pub type_: String,
 }
-/// Odoo object descriptor
+/// raw Odoo object descriptor
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ObjectDescriptor {
     /// object name
@@ -206,7 +206,7 @@ pub struct OdooApi {
     jsonrpc_url: Url,
     logout_url: Url,
 }
-
+/// Odoo Model object
 pub struct Model<'a> {
     desc: ObjectDescriptor,
     api: &'a OdooApi,
@@ -218,6 +218,27 @@ impl fmt::Debug for Model<'_> {
             .finish()
     }
 }
+
+impl Model<'_> {
+    pub fn call(
+        &self,
+        method: &str,
+        args: Option<Value>,
+        kwargs: Option<Value>,
+    ) -> Result<Value, Error> {
+        self.api.object_call(
+            "tec-528",
+            1,
+            "admin",
+            &self.desc.name,
+            None, 
+            method,
+            args,
+            kwargs,
+        )
+    }
+}
+/// Odoo RecordSet
 pub struct RecordSet<'a> {
     pub ids: Vec<u32>,
     pub model: &'a Model<'a>,
@@ -225,6 +246,7 @@ pub struct RecordSet<'a> {
 }
 
 impl RecordSet<'_> {
+    /// get attribute `name` for the first object of this record set
     pub fn attr(&self, name: &str) -> Option<&Value> {
         let head = &self.data[0];
         match head {
@@ -234,8 +256,13 @@ impl RecordSet<'_> {
             }
         }
     }
-
-    pub fn call(&self, method: &str, args: Value, kwargs: Option<Value>) -> Result<Value, Error> {
+    /// call `method` on this `RecordSet`
+    pub fn call(
+        &self,
+        method: &str,
+        args: Option<Value>,
+        kwargs: Option<Value>,
+    ) -> Result<Value, Error> {
         println!("call {:?}::{}({:?})", self, method, args);
         self.model.api.recordset_call(
             "tec-528",
@@ -451,21 +478,11 @@ impl OdooApi {
             json!([db, uid, login, object, "fields_get"]),
         );
         //println!(r#"resp: {:#?}"#, resp);
-        let mut fields = BTreeMap::<String, FieldDescriptor>::new();
 
         let res = self
             .cli
             .decode_response::<Map<String, Value>>(resp)
             .unwrap();
-        for (attr, value) in res.iter() {
-            let desc = serde_json::from_value(value.to_owned());
-            match desc {
-                Ok(desc) => {
-                    // println!("{} = {:#?}\n", attr, desc);
-                    fields.insert(attr.to_owned(), desc);
-                }
-                Err(err) => {
-                    if let Value::Object(obj) = value.to_owned() {
                         if let Some(ro) = obj.get("readonly") {
                             let ro: bool = match ro {
                                 Value::Number(n) => {
@@ -554,7 +571,7 @@ impl OdooApi {
         uid: u32,
         login: &str,
         object: &str,
-        ids: &Vec<u32>,
+        ids: Option<Vec<u32>>,
         method: &str,
         args: Value,
         _kwargs: Option<Value>,

@@ -17,7 +17,6 @@ fn main() -> Result<(), Error> {
     dotenv().ok();
 
     let rpc = OdooRpc::new();
-
     let api = OdooApi::new(rpc);
 
     let version = match api.version_info() {
@@ -118,8 +117,24 @@ fn main() -> Result<(), Error> {
     );
     let update = json!({"os": {"version": "0.1.0", "apk": "foobar.apk"}});
 
-    let res = term.call("servicing_ota", json!(update.to_string()), None);
+    let card = model.browse(
+        model
+            .search(json!([("name", "=", "89351060000893708683")]))
+            .unwrap(),
+    ).unwrap();
+
+    let res = card.call("servicing_ota", Some(json!(update.to_string())), None);
     println!("servicing_ota result: {:?}", res);
+
+    let res = model.call("get_public_methods", None, None);
+    println!("get_public_methods: {:#?}", res);
+
+    let res = term.call(
+        "foobar",
+        Some(json!((1, 2, 3))),
+        Some(json!({"say": "Viva l'Algérie !"})),
+    );
+    println!("foobar result: {:?}", res);
 
     match env::var("DB_PASSWORD") {
         Ok(password) => {
