@@ -16,8 +16,24 @@ use std::collections::BTreeMap;
 use log::debug;
 use reqwest::blocking::Client;
 use reqwest::blocking::Response;
-use reqwest::header;
-pub use reqwest::Error;
+
+#[macro_use]
+extern crate error_chain;
+error_chain! {
+    errors {
+        RpcError(t: Value) {
+            description("blrub")
+            display("blaaah: {}", t)
+        }
+        MyOtherError(t: String) {
+            description("blrub")
+            display("blaaah: {}", t)
+        }
+    }
+    foreign_links {
+        Parse(ParseError);
+    }
+}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -167,7 +183,7 @@ impl OdooRpc {
             params: params,
         }
     }
-    pub fn send_payload(&self, endpoint: &str, payload: RpcRequest) -> reqwest::Result<Response> {
+    pub fn send_payload(&self, endpoint: &str, payload: RpcRequest) -> Result<Response> {
         let j = serde_json::to_string(&payload).unwrap();
         let req = self
             .http
@@ -175,29 +191,35 @@ impl OdooRpc {
             .header("Content-Type", "application/json")
             .body(j);
 
-        req.send()
+        req.send().chain_err(|| "could not send payload")
     }
 
     pub fn decode_response<T: for<'de> Deserialize<'de>>(
         &self,
-        resp: reqwest::Result<Response>,
-    ) -> Result<T, Error> {
+        resp: Result<Response>,
+    ) -> Result<T> {
         match resp {
             Ok(resp) => {
-                let j = serde_json::from_str::<Value>(&resp.text().unwrap()).unwrap();
-                debug!("raw response: {:#?}", resp);
-                if let Some(value) = j.get("result") {
-                    let resp = serde_json::from_value::<RpcResponse>(j).unwrap();
-                    let res: Value = resp.result;
-                    // debug!("res: {:#?}", res);
-                    let o: T = serde_json::from_value(res).unwrap();
-                    Ok(o)
-                } else if let Some(value) = j.get("error") {
-                    let rcp_err = serde_json::from_value::<RpcError>(j).unwrap();
-                    let res = rcp_err.error;
-                    Err(Error::from_string(res.to_string()))
-                }else {
-                    Err(Error::from_string("Huu ???"))
+                match resp.text().chain_err(|| "could not get response body") {
+                    Ok(raw) => {
+                
+                        let j = serde_json::from_str::<Value>(&raw).unwrap();
+                        debug!("raw response: {:#?}", j);
+                        if let Some(_i) = j.get("result") {
+                            let resp = serde_json::from_value::<RpcResponse>(j).unwrap();
+                            let res: Value = resp.result;
+                            // debug!("res: {:#?}", res);
+                            let o: T = serde_json::from_value(res).unwrap();
+                            Ok(o)
+                        } else if let Some(_) = j.get("error") {
+                            let rcp_err = serde_json::from_value::<RpcError>(j).unwrap();
+                            let res = rcp_err.error;
+                            Err(Error::from(ErrorKind::RpcError(res)))
+                        } else {
+                            Err(Error::from(ErrorKind::MyOtherError("zooo".to_owned())))
+                        }
+                    }
+                    Err(err) => Err(err)
                 }
             }
             Err(err) => Err(err)
@@ -230,7 +252,7 @@ impl Model<'_> {
         method: &str,
         args: Option<Value>,
         kwargs: Option<Value>,
-    ) -> Result<Value, Error> {
+    ) -> Result<Value> {
         self.api.recordset_call(
             "tec-528",
             1,
@@ -267,7 +289,7 @@ impl RecordSet<'_> {
         method: &str,
         args: Option<Value>,
         kwargs: Option<Value>,
-    ) -> Result<Value, Error> {
+    ) -> Result<Value> {
         debug!("call {:?}::{}({:?})", self, method, args);
         self.model.api.recordset_call(
             "tec-528",
@@ -291,12 +313,12 @@ impl fmt::Debug for RecordSet<'_> {
 }
 
 impl Model<'_> {
-    pub fn search(&self, domain: Value) -> Result<Vec<u32>, Error> {
+    pub fn search(&self, domain: Value) -> Result<Vec<u32>> {
         self.api
             .object_search("tec-528", 1, "admin", &self.desc.name, domain)
     }
 
-    pub fn browse(&self, ids: Vec<u32>) -> Result<RecordSet, Error> {
+    pub fn browse(&self, ids: Vec<u32>) -> Result<RecordSet> {
         let names: Vec<String> = self
             .desc
             .fields
@@ -355,7 +377,7 @@ impl OdooApi {
     }
     // fn decode_response<T>(&mut self, resp)
 
-    pub fn version_info(&self) -> Result<VersionInfo, reqwest::Error> {
+    pub fn version_info(&self) -> Result<VersionInfo> {
         let params = json!({});
         let payload = self.cli.encode_query("call", params);
         self.cli.decode_response::<VersionInfo>(
@@ -368,14 +390,14 @@ impl OdooApi {
         db: &str,
         login: &str,
         password: &str,
-    ) -> Result<SessionInfo, reqwest::Error> {
+    ) -> Result<SessionInfo> {
         let params = json!({"db": db, "login": login, "password": password});
         let payload = self.cli.encode_query("call", params);
         self.cli
             .decode_response::<SessionInfo>(self.cli.send_payload(self.login_url.as_str(), payload))
     }
 
-    pub fn logout(&self) -> Result<Value, reqwest::Error> {
+    pub fn logout(&self) -> Result<Value> {
         let params = json!({});
         let payload = self.cli.encode_query("call", params);
         let resp = self.cli.send_payload(self.logout_url.as_str(), payload);
@@ -394,7 +416,7 @@ impl OdooApi {
         service: &OdooService,
         method: &str,
         args: Value,
-    ) -> Result<Response, Error> {
+    ) -> Result<Response> {
         let params = json!({
             "service": service.name,
             "method": method,
@@ -405,7 +427,7 @@ impl OdooApi {
         let resp = self.cli.send_payload(endpoint.as_str(), payload);
         resp
     }
-    pub fn db_list(&self) -> Result<Vec<String>, reqwest::Error> {
+    pub fn db_list(&self) -> Result<Vec<String>> {
         let resp = self.odoo_service_call(&DB_SERVICE, "list", json!([]));
         self.cli.decode_response::<Vec<String>>(resp)
     }
@@ -414,7 +436,7 @@ impl OdooApi {
         master_password: &str,
         db: &str,
         path: &str,
-    ) -> Result<(), reqwest::Error> {
+    ) -> Result<()> {
         let resp = self.odoo_service_call(&DB_SERVICE, "dump", json!([master_password, db, "zip"]));
         let data = self.cli.decode_response::<String>(resp); // FIXME: allocating a whole data dump is bad ...
         match data {
@@ -446,7 +468,7 @@ impl OdooApi {
         demo: bool,
         lang: &str,
         admin_password: &str,
-    ) -> Result<Value, Error> {
+    ) -> Result<Value> {
         let resp = self.odoo_service_call(
             &DB_SERVICE,
             "create_database",
@@ -456,12 +478,12 @@ impl OdooApi {
         result
     }
 
-    pub fn db_drop(&self, master_password: &str, db: &str) -> Result<Value, Error> {
+    pub fn db_drop(&self, master_password: &str, db: &str) -> Result<Value> {
         let resp = self.odoo_service_call(&DB_SERVICE, "drop", json!([master_password, db]));
         let result = self.cli.decode_response::<Value>(resp);
         result
     }
-    pub fn get_model(&self, name: &str) -> Result<Model, reqwest::Error> {
+    pub fn get_model(&self, name: &str) -> Result<Model> {
         let desc = self.object_fields_get("tec-528", 1, "admin", name);
         match desc {
             Ok(desc) => Ok(Model { desc, api: self }),
@@ -474,7 +496,7 @@ impl OdooApi {
         uid: u32,
         login: &str,
         object: &str,
-    ) -> Result<ObjectDescriptor, reqwest::Error> {
+    ) -> Result<ObjectDescriptor> {
         let resp = self.odoo_service_call(
             &OBJECT_SERVICE,
             "execute",
@@ -532,7 +554,7 @@ impl OdooApi {
         login: &str,
         object: &str,
         domain: Value,
-    ) -> Result<Vec<u32>, reqwest::Error> {
+    ) -> Result<Vec<u32>> {
         let args = json!(
             [db, uid, login, object, "search", (domain,),
              {
@@ -556,7 +578,7 @@ impl OdooApi {
         object: &str,
         ids: Vec<u32>,
         fields: Vec<String>,
-    ) -> Result<Value, reqwest::Error> {
+    ) -> Result<Value> {
         let ids = json!(ids);
         let args = json!(
             [db, uid, login, object, "read", (ids, fields),
@@ -583,7 +605,7 @@ impl OdooApi {
         method: &str,
         args: Option<Value>,
         _kwargs: Option<Value>,
-    ) -> Result<Value, reqwest::Error> {
+    ) -> Result<Value> {
         let args = match (ids, args) {
             (Some(ids), Some(args)) => {
                 json!([
@@ -646,9 +668,9 @@ impl OdooApi {
 ///
 /// You can use ODOO_URL or ODOO_HOST and ODOO_PORT.
 /// ODOO_URL takes precedence.
-pub fn odoo_url_from_env() -> Result<Url, ParseError> {
+pub fn odoo_url_from_env() -> Result<Url> {
     match env::var("ODOO_URL") {
-        Ok(url) => Url::parse(&url),
+        Ok(url) => Url::parse(&url).chain_err(|| "invalid url"),
         Err(_) => {
             let odoo_host = match env::var("ODOO_HOST") {
                 Ok(val) => val,
@@ -667,7 +689,7 @@ pub fn odoo_url_from_env() -> Result<Url, ParseError> {
                     443 | 80 => "".to_owned(),
                     port => format!(":{}", port),
                 }
-            ))
+            )).chain_err(|| "invalid url")
         }
     }
 }
@@ -694,8 +716,9 @@ mod tests {
         env::remove_var("ODOO_URL");
         env::remove_var("ODOO_HOST");
         env::remove_var("ODOO_PORT");
+        let expected = Url::parse("http://localhost:8069").unwrap();
 
-        assert_eq!(odoo_url_from_env(), Url::parse("http://localhost:8069"));
+        assert_eq!(odoo_url_from_env().unwrap(), expected);
     }
     #[test]
     fn test_odoo_url_precedence() {
@@ -705,7 +728,7 @@ mod tests {
         env::set_var("ODOO_HOST", "localhost");
         env::set_var("ODOO_PORT", "8069");
 
-        assert_eq!(odoo_url_from_env(), Url::parse("http://example.com"));
+        assert_eq!(odoo_url_from_env().unwrap(), Url::parse("http://example.com").unwrap());
     }
 
     #[test]
@@ -717,7 +740,7 @@ mod tests {
         env::set_var("ODOO_HOST", "example.com");
         env::set_var("ODOO_PORT", "8068");
 
-        assert_eq!(odoo_url_from_env(), Url::parse("http://example.com:8068"));
+        assert_eq!(odoo_url_from_env().unwrap(), Url::parse("http://example.com:8068").unwrap());
     }
 
     #[test]
@@ -729,7 +752,7 @@ mod tests {
         env::set_var("ODOO_HOST", "example.com");
         env::set_var("ODOO_PORT", "80");
 
-        assert_eq!(odoo_url_from_env(), Url::parse("http://example.com"));
+        assert_eq!(odoo_url_from_env().unwrap(), Url::parse("http://example.com").unwrap());
     }
 
     #[test]
@@ -741,7 +764,7 @@ mod tests {
         env::set_var("ODOO_HOST", "example.com");
         env::set_var("ODOO_PORT", "443");
 
-        assert_eq!(odoo_url_from_env(), Url::parse("https://example.com"));
+        assert_eq!(odoo_url_from_env().unwrap(), Url::parse("https://example.com").unwrap());
     }
 
     #[test]
