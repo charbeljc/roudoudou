@@ -13,11 +13,11 @@ use std::io::Cursor;
 
 use std::collections::BTreeMap;
 
+use log::debug;
 use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header;
 pub use reqwest::Error;
-use log::debug;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -136,7 +136,7 @@ pub struct RpcResponse {
 pub struct RpcError {
     jsonrpc: String,
     id: u32,
-    result: Value,
+    error: Value,
 }
 
 const ODOO_SERVER_VERSION: &str = "/web/webclient/version_info";
@@ -180,22 +180,27 @@ impl OdooRpc {
 
     pub fn decode_response<T: for<'de> Deserialize<'de>>(
         &self,
-        repw: reqwest::Result<Response>,
-    ) -> reqwest::Result<T> {
-        match repw {
+        resp: reqwest::Result<Response>,
+    ) -> Result<T, Error> {
+        match resp {
             Ok(resp) => {
-                //debug!("headers: {:#?}", resp.headers());
-                let headers = resp.headers();
-                if let Some(val) = headers.get(header::SET_COOKIE) {
-                    debug!("VAL: {:#?}", val);
+                let j = serde_json::from_str::<Value>(&resp.text().unwrap()).unwrap();
+                debug!("raw response: {:#?}", resp);
+                if let Some(value) = j.get("result") {
+                    let resp = serde_json::from_value::<RpcResponse>(j).unwrap();
+                    let res: Value = resp.result;
+                    // debug!("res: {:#?}", res);
+                    let o: T = serde_json::from_value(res).unwrap();
+                    Ok(o)
+                } else if let Some(value) = j.get("error") {
+                    let rcp_err = serde_json::from_value::<RpcError>(j).unwrap();
+                    let res = rcp_err.error;
+                    Err(Error::from_string(res.to_string()))
+                }else {
+                    Err(Error::from_string("Huu ???"))
                 }
-                let rpc_resp: RpcResponse = serde_json::from_str(&resp.text().unwrap()).unwrap();
-                let res: Value = rpc_resp.result;
-                // debug!("res: {:#?}", res);
-                let o: T = serde_json::from_value(res).unwrap();
-                Ok(o)
             }
-            Err(err) => Err(err),
+            Err(err) => Err(err)
         }
     }
 }
@@ -505,10 +510,7 @@ impl OdooApi {
                                 // debug!("{} = {:#?}\n", attr, desc);
                                 fields.insert(attr.to_owned(), desc);
                             } else {
-                                debug!(
-                                    "Could not get field descriptor for {}: {}",
-                                    attr, err
-                                );
+                                debug!("Could not get field descriptor for {}: {}", attr, err);
                                 //debug!("{}\n\n", serde_json::to_string_pretty(value).unwrap());
                             }
                         }
@@ -633,7 +635,7 @@ impl OdooApi {
                 }
             }
 
-            ])
+            ]),
         };
         let resp = self.odoo_service_call(&OBJECT_SERVICE, "execute_kw", args);
         self.cli.decode_response::<Value>(resp)

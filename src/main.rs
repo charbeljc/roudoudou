@@ -53,7 +53,7 @@ fn main() -> Result<(), Error> {
         json!([
             ("is_terminal", "=", true),
             ("id", ">=", 1000),
-            ("id", "<=", 1100)
+            ("id", "<=", 1010)
         ]),
     ) {
         Ok(val) => val,
@@ -70,6 +70,7 @@ fn main() -> Result<(), Error> {
         ids, // json!([1024, 1025, 1026])
         [
             "name".to_owned(),
+            "product_id".to_owned(),
             "product_tag_ids".to_owned(),
             "is_terminal".to_owned(),
             "location_id".to_owned(),
@@ -79,8 +80,8 @@ fn main() -> Result<(), Error> {
     );
     match res {
         Ok(Value::Array(val)) => {
-            for _item in val {
-                // println!("item: {:?}", item);
+            for item in val {
+                println!("item: {:?}", item);
             }
         }
         _ => {
@@ -123,7 +124,8 @@ fn main() -> Result<(), Error> {
             .unwrap(),
     ).unwrap();
 
-    let res = card.call("servicing_ota", Some(json!(update.to_string())), None);
+    let args = Some(json!(update.to_string()));
+    let res = card.call("servicing_ota_update", args, None);
     println!("servicing_ota result: {:?}", res);
 
     let res = model.call("get_public_methods", None, None);
