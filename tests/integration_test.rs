@@ -1,5 +1,5 @@
 mod common;
-use rudodoo::{OdooApi, OdooRpc};
+use roudoudou::{OdooApi, OdooRpc};
 use serde_json::json;
 
 #[test]
@@ -59,7 +59,8 @@ fn reflect_stock_label_methods() {
             "recompute_sql",
             "reset_parts",
             "search",
-            "servicing_ota",
+            "servicing_ota_query",
+            "servicing_ota_update",
             "show_traceability",
             "show_traceability_downstream",
             "show_traceability_upstream",

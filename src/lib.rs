@@ -17,6 +17,7 @@ use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header;
 pub use reqwest::Error;
+use log::{debug, info, warn};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -226,12 +227,12 @@ impl Model<'_> {
         args: Option<Value>,
         kwargs: Option<Value>,
     ) -> Result<Value, Error> {
-        self.api.object_call(
+        self.api.recordset_call(
             "tec-528",
             1,
             "admin",
             &self.desc.name,
-            None, 
+            None,
             method,
             args,
             kwargs,
@@ -269,7 +270,7 @@ impl RecordSet<'_> {
             1,
             "admin",
             &self.model.desc.name,
-            &self.ids,
+            Some(&self.ids),
             method,
             args,
             kwargs,
@@ -477,46 +478,54 @@ impl OdooApi {
             "execute",
             json!([db, uid, login, object, "fields_get"]),
         );
-        //println!(r#"resp: {:#?}"#, resp);
+        //prointln!(r#"resp: {:#?}"#, resp);
 
-        let res = self
-            .cli
-            .decode_response::<Map<String, Value>>(resp)
-            .unwrap();
-                        if let Some(ro) = obj.get("readonly") {
-                            let ro: bool = match ro {
-                                Value::Number(n) => {
-                                    if n.as_i64() == Some(0) {
-                                        false
-                                    } else {
-                                        true
-                                    }
-                                }
-                                _ => false,
-                            };
-                            let mut changed = value.clone();
-                            println!("RO: {:?}", ro);
-                            changed["readonly"] = json!(ro);
-                            let desc = serde_json::from_value(changed).unwrap();
-                            // println!("{} = {:#?}\n", attr, desc);
+        match self.cli.decode_response::<Map<String, Value>>(resp) {
+            Ok(values) => {
+                let mut fields = BTreeMap::<String, FieldDescriptor>::new();
+                for (attr, obj) in values.iter() {
+                    let desc = serde_json::from_value(obj.to_owned());
+                    match desc {
+                        Ok(desc) => {
                             fields.insert(attr.to_owned(), desc);
-                        } else {
-                            println!(
-                                "ERROR: Could not get field descriptor for {}: {}",
-                                attr, err
-                            );
-                            //println!("{}\n\n", serde_json::to_string_pretty(value).unwrap());
+                        }
+                        Err(err) => {
+                            if let Some(ro) = obj.get("readonly") {
+                                let ro: bool = match ro {
+                                    Value::Number(n) => {
+                                        if n.as_i64() == Some(0) {
+                                            false
+                                        } else {
+                                            true
+                                        }
+                                    }
+                                    _ => false,
+                                };
+                                let mut changed = obj.clone();
+                                println!("RO: {:?}", ro);
+                                changed["readonly"] = json!(ro);
+                                let desc = serde_json::from_value(changed).unwrap();
+                                // println!("{} = {:#?}\n", attr, desc);
+                                fields.insert(attr.to_owned(), desc);
+                            } else {
+                                debug!(
+                                    "Could not get field descriptor for {}: {}",
+                                    attr, err
+                                );
+                                //println!("{}\n\n", serde_json::to_string_pretty(value).unwrap());
+                            }
                         }
                     }
                 }
-            };
+                Ok(ObjectDescriptor {
+                    name: object.to_owned(),
+                    fields,
+                })
+            }
+            Err(err) => Err(err),
         }
-
-        Ok(ObjectDescriptor {
-            name: object.to_owned(),
-            fields,
-        })
     }
+
     pub fn object_search(
         &self,
         db: &str,
@@ -571,20 +580,64 @@ impl OdooApi {
         uid: u32,
         login: &str,
         object: &str,
-        ids: Option<Vec<u32>>,
+        ids: Option<&Vec<u32>>,
         method: &str,
-        args: Value,
+        args: Option<Value>,
         _kwargs: Option<Value>,
     ) -> Result<Value, reqwest::Error> {
-        let args = json!(
-            [db, uid, login, object, method, (ids, args),
-             {
-                "context": {"lang": "en_US",
-                "current_week": "2107",
-                "tz": "Europe/Paris",
-                "uid": 1,
-                "current_week2": "2018"
-            }}]);
+        let args = match (ids, args) {
+            (Some(ids), Some(args)) => {
+                json!([
+                    db, uid, login, object, method, (ids, args),
+                    {
+                        "context": {
+                            "lang": "en_US",
+                            "current_week": "2107",
+                            "tz": "Europe/Paris",
+                            "uid": 1,
+                            "current_week2": "2018"
+                        }
+                    }
+                ])
+            }
+            (Some(ids), None) => json!([
+            db, uid, login, object, method, (ids,),
+            {
+                "context": {
+                    "lang": "en_US",
+                    "current_week": "2107",
+                    "tz": "Europe/Paris",
+                    "uid": 1,
+                    "current_week2": "2018"
+                }
+            }
+            ]),
+            (None, Some(args)) => json!([
+            db, uid, login, object, method, (args,),
+            {
+                "context": {
+                    "lang": "en_US",
+                    "current_week": "2107",
+                    "tz": "Europe/Paris",
+                    "uid": 1,
+                    "current_week2": "2018"
+                }
+            }
+            ]),
+            (None, None) => json!([
+            db, uid, login, object, method, [],
+            {
+                "context": {
+                    "lang": "en_US",
+                    "current_week": "2107",
+                    "tz": "Europe/Paris",
+                    "uid": 1,
+                    "current_week2": "2018"
+                }
+            }
+
+            ])
+        };
         let resp = self.odoo_service_call(&OBJECT_SERVICE, "execute_kw", args);
         self.cli.decode_response::<Value>(resp)
     }
