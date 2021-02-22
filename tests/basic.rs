@@ -1,7 +1,6 @@
 mod common;
 use roudoudou::{OdooApi, OdooRpc};
-use serde_json::json;
-use log::{debug, info, warn};
+use log::debug;
 
 #[test]
 fn test_version_info() {
@@ -14,7 +13,7 @@ fn test_version_info() {
     assert_eq!(version.server_serial, "9.0");
     assert_eq!(version.server_version, "9.0c");
 
-    println!("version: {:#?}", version);
+    debug!("version: {:#?}", version);
 }
 
 #[test]
@@ -25,7 +24,7 @@ fn test_dblist() {
 
     let dblist = api.db_list().unwrap();
     
-    println!("dblist: {:#?}", dblist);
+    debug!("dblist: {:#?}", dblist);
     assert!(dblist.iter().any(|x| x == "test"));
 }
 
@@ -36,9 +35,9 @@ fn test_login_logout() {
     let api = OdooApi::new(rpc);
 
     let session = api.login("tec-528", "admin", "admin").unwrap();
-    println!("session: {:#?}", session);
+    debug!("session: {:#?}", session);
 
     let status = api.logout();
-    println!("status: {:#?}", status)
+    debug!("status: {:#?}", status)
 }
 

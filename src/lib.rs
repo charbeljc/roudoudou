@@ -17,7 +17,7 @@ use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header;
 pub use reqwest::Error;
-use log::{debug, info, warn};
+use log::debug;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -107,14 +107,14 @@ impl ObjectDescriptor {
     }
 
     pub fn show(&self) {
-        println!("object {}", self.name);
-        println!("attributes:");
+        debug!("object {}", self.name);
+        debug!("attributes:");
         for (attr, desc) in self.get_scalar_fields() {
-            println!("scalar: {} = {:#?}\n", attr, desc);
+            debug!("scalar: {} = {:#?}\n", attr, desc);
         }
-        println!("relations:");
+        debug!("relations:");
         for (attr, desc) in self.get_relational_fields() {
-            println!("relation: {} = {:#?}\n", attr, desc);
+            debug!("relation: {} = {:#?}\n", attr, desc);
         }
     }
 }
@@ -184,14 +184,14 @@ impl OdooRpc {
     ) -> reqwest::Result<T> {
         match repw {
             Ok(resp) => {
-                //println!("headers: {:#?}", resp.headers());
+                //debug!("headers: {:#?}", resp.headers());
                 let headers = resp.headers();
                 if let Some(val) = headers.get(header::SET_COOKIE) {
-                    println!("VAL: {:#?}", val);
+                    debug!("VAL: {:#?}", val);
                 }
                 let rpc_resp: RpcResponse = serde_json::from_str(&resp.text().unwrap()).unwrap();
                 let res: Value = rpc_resp.result;
-                // println!("res: {:#?}", res);
+                // debug!("res: {:#?}", res);
                 let o: T = serde_json::from_value(res).unwrap();
                 Ok(o)
             }
@@ -204,7 +204,6 @@ pub struct OdooApi {
     cli: OdooRpc,
     version_url: Url,
     login_url: Url,
-    jsonrpc_url: Url,
     logout_url: Url,
 }
 /// Odoo Model object
@@ -264,7 +263,7 @@ impl RecordSet<'_> {
         args: Option<Value>,
         kwargs: Option<Value>,
     ) -> Result<Value, Error> {
-        println!("call {:?}::{}({:?})", self, method, args);
+        debug!("call {:?}::{}({:?})", self, method, args);
         self.model.api.recordset_call(
             "tec-528",
             1,
@@ -340,13 +339,11 @@ impl OdooApi {
         let version_url = cli.base_url.join(ODOO_SERVER_VERSION).unwrap();
         let login_url = cli.base_url.join(ODOO_LOGIN).unwrap();
         let logout_url = cli.base_url.join(ODOO_LOGOUT).unwrap();
-        let jsonrpc_url = cli.base_url.join(ODOO_JSONRPC).unwrap();
 
         let api: OdooApi = Self {
             cli: cli,
             version_url: version_url.clone(),
             login_url: login_url.clone(),
-            jsonrpc_url: jsonrpc_url.clone(),
             logout_url: logout_url.clone(),
         };
         api
@@ -380,7 +377,7 @@ impl OdooApi {
         match resp {
             Ok(resp) => {
                 let data = resp.text().unwrap();
-                println!("data: {}", data);
+                debug!("data: {}", data);
                 Ok(serde_json::from_str(&data).unwrap())
             }
             Err(err) => Err(err),
@@ -420,7 +417,7 @@ impl OdooApi {
                 let f = File::create(path).unwrap();
                 let mut writer = BufWriter::new(f);
                 let wrapped_reader = Cursor::new(data);
-                println!("save dump to {} ...", path);
+                debug!("save dump to {} ...", path);
                 for line in wrapped_reader.lines() {
                     match line {
                         Ok(val) => {
@@ -428,7 +425,7 @@ impl OdooApi {
                             writer.write(&data).unwrap();
                         }
                         Err(err) => {
-                            println!("err: {:#?}", err);
+                            debug!("err: {:#?}", err);
                         }
                     }
                 }
@@ -502,17 +499,17 @@ impl OdooApi {
                                     _ => false,
                                 };
                                 let mut changed = obj.clone();
-                                println!("RO: {:?}", ro);
+                                debug!("RO: {:?}", ro);
                                 changed["readonly"] = json!(ro);
                                 let desc = serde_json::from_value(changed).unwrap();
-                                // println!("{} = {:#?}\n", attr, desc);
+                                // debug!("{} = {:#?}\n", attr, desc);
                                 fields.insert(attr.to_owned(), desc);
                             } else {
                                 debug!(
                                     "Could not get field descriptor for {}: {}",
                                     attr, err
                                 );
-                                //println!("{}\n\n", serde_json::to_string_pretty(value).unwrap());
+                                //debug!("{}\n\n", serde_json::to_string_pretty(value).unwrap());
                             }
                         }
                     }
