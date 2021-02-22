@@ -16,13 +16,7 @@ use std::collections::BTreeMap;
 use reqwest::blocking::Client;
 use reqwest::blocking::Response;
 use reqwest::header;
-use reqwest::Error;
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum OdooOption<T> {
-    Some(T),
-    Unset(bool),
-}
+pub use reqwest::Error;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -123,7 +117,7 @@ impl ObjectDescriptor {
         }
     }
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub struct RpcRequest<'a> {
     jsonrpc: &'a str,
     method: &'a str,
@@ -234,9 +228,7 @@ impl RecordSet<'_> {
     pub fn attr(&self, name: &str) -> Option<&Value> {
         let head = &self.data[0];
         match head {
-            Value::Object(obj) => {
-                obj.get(name)
-            }
+            Value::Object(obj) => obj.get(name),
             _ => {
                 unreachable!()
             }
@@ -245,8 +237,16 @@ impl RecordSet<'_> {
 
     pub fn call(&self, method: &str, args: Value, kwargs: Option<Value>) -> Result<Value, Error> {
         println!("call {:?}::{}({:?})", self, method, args);
-        self.model.api.object_call("tec-528", 1, "admin", &self.model.desc.name, &self.ids, method, args, kwargs)
-
+        self.model.api.recordset_call(
+            "tec-528",
+            1,
+            "admin",
+            &self.model.desc.name,
+            &self.ids,
+            method,
+            args,
+            kwargs,
+        )
     }
 }
 impl fmt::Debug for RecordSet<'_> {
@@ -285,6 +285,28 @@ impl Model<'_> {
     }
 }
 
+pub struct OdooService<'a> {
+    pub name: &'a str,
+    pub path: &'a str,
+}
+
+pub static LOGIN_SERVICE: OdooService = OdooService {
+    name: "login",
+    path: ODOO_LOGIN,
+};
+pub static LOGOUT_SERVICE: OdooService = OdooService {
+    name: "logout",
+    path: ODOO_LOGOUT,
+};
+pub static DB_SERVICE: OdooService = OdooService {
+    name: "db",
+    path: ODOO_JSONRPC,
+};
+pub static OBJECT_SERVICE: OdooService = OdooService {
+    name: "object",
+    path: ODOO_JSONRPC,
+};
+
 impl OdooApi {
     pub fn new(cli: OdooRpc) -> Self {
         let version_url = cli.base_url.join(ODOO_SERVER_VERSION).unwrap();
@@ -306,8 +328,9 @@ impl OdooApi {
     pub fn version_info(&self) -> Result<VersionInfo, reqwest::Error> {
         let params = json!({});
         let payload = self.cli.encode_query("call", params);
-        self.cli
-            .decode_response::<VersionInfo>(self.cli.send_payload(self.version_url.as_str(), payload))
+        self.cli.decode_response::<VersionInfo>(
+            self.cli.send_payload(self.version_url.as_str(), payload),
+        )
     }
 
     pub fn login(
@@ -336,15 +359,25 @@ impl OdooApi {
         }
         //self.decode_response::<Value>(self.cli.send_payload(self.logout_url.as_str(), payload))
     }
-    pub fn db_list(&self) -> Result<Vec<String>, reqwest::Error> {
+    pub fn odoo_service_call(
+        &self,
+        service: &OdooService,
+        method: &str,
+        args: Value,
+    ) -> Result<Response, Error> {
         let params = json!({
-            "service": "db",
-            "method": "list",
-            "args": []
+            "service": service.name,
+            "method": method,
+            "args": args
         });
         let payload = self.cli.encode_query("call", params);
-        self.cli
-            .decode_response::<Vec<String>>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
+        let endpoint = self.cli.base_url.join(service.path).unwrap();
+        let resp = self.cli.send_payload(endpoint.as_str(), payload);
+        resp
+    }
+    pub fn db_list(&self) -> Result<Vec<String>, reqwest::Error> {
+        let resp = self.odoo_service_call(&DB_SERVICE, "list", json!([]));
+        self.cli.decode_response::<Vec<String>>(resp)
     }
     pub fn db_dump(
         &self,
@@ -352,32 +385,29 @@ impl OdooApi {
         db: &str,
         path: &str,
     ) -> Result<(), reqwest::Error> {
-        let params = json!({
-            "service": "db",
-            "method": "dump",
-            "args": [master_password, db, "zip"]
-        });
-        let payload = self.cli.encode_query("call", params);
-        let data = self
-            .cli
-            .decode_response::<String>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
-            .unwrap();
-        let f = File::create(path).unwrap();
-        let mut writer = BufWriter::new(f);
-        let wrapped_reader = Cursor::new(data);
-        println!("save dump to {} ...", path);
-        for line in wrapped_reader.lines() {
-            match line {
-                Ok(val) => {
-                    let data = base64::decode(val).unwrap();
-                    writer.write(&data).unwrap();
+        let resp = self.odoo_service_call(&DB_SERVICE, "dump", json!([master_password, db, "zip"]));
+        let data = self.cli.decode_response::<String>(resp); // FIXME: allocating a whole data dump is bad ...
+        match data {
+            Ok(data) => {
+                let f = File::create(path).unwrap();
+                let mut writer = BufWriter::new(f);
+                let wrapped_reader = Cursor::new(data);
+                println!("save dump to {} ...", path);
+                for line in wrapped_reader.lines() {
+                    match line {
+                        Ok(val) => {
+                            let data = base64::decode(val).unwrap();
+                            writer.write(&data).unwrap();
+                        }
+                        Err(err) => {
+                            println!("err: {:#?}", err);
+                        }
+                    }
                 }
-                Err(err) => {
-                    println!("err: {:#?}", err);
-                }
+                Ok(())
             }
+            Err(err) => Err(err),
         }
-        Ok(())
     }
     pub fn db_create(
         &self,
@@ -387,34 +417,19 @@ impl OdooApi {
         lang: &str,
         admin_password: &str,
     ) -> Result<Value, Error> {
-        let params = json!({
-            "service": "db",
-            "method": "create_database",
-            "args": [master_password, db, demo, lang, admin_password]
-        });
-        let payload = self.cli.encode_query("call", params);
-        let resp = self.cli.send_payload(self.jsonrpc_url.as_str(), payload);
-        println!("create resp: {:#?}", resp);
-        match resp {
-            Ok(res) => println!("create db: {}", res.text().unwrap()),
-            Err(res) => println!("error create db: {}", res),
-        };
-        Ok(json!({}))
+        let resp = self.odoo_service_call(
+            &DB_SERVICE,
+            "create_database",
+            json!([master_password, db, demo, lang, admin_password]),
+        );
+        let result = self.cli.decode_response::<Value>(resp);
+        result
     }
+
     pub fn db_drop(&self, master_password: &str, db: &str) -> Result<Value, Error> {
-        let params = json!({
-            "service": "db",
-            "method": "drop",
-            "args": [master_password, db]
-        });
-        let payload = self.cli.encode_query("call", params);
-        let resp = self.cli.send_payload(self.jsonrpc_url.as_str(), payload);
-        println!("drop resp: {:#?}", resp);
-        match resp {
-            Ok(res) => println!("drop db: {}", res.text().unwrap()),
-            Err(res) => println!("error drop db: {}", res),
-        };
-        Ok(json!({}))
+        let resp = self.odoo_service_call(&DB_SERVICE, "drop", json!([master_password, db]));
+        let result = self.cli.decode_response::<Value>(resp);
+        result
     }
     pub fn get_model(&self, name: &str) -> Result<Model, reqwest::Error> {
         let desc = self.object_fields_get("tec-528", 1, "admin", name);
@@ -430,13 +445,11 @@ impl OdooApi {
         login: &str,
         object: &str,
     ) -> Result<ObjectDescriptor, reqwest::Error> {
-        let params = json!({
-            "service": "object",
-            "method": "execute",
-            "args": [db, uid, login, object, "fields_get"]
-        });
-        let payload = self.cli.encode_query("call", params);
-        let resp = self.cli.send_payload(self.jsonrpc_url.as_str(), payload);
+        let resp = self.odoo_service_call(
+            &OBJECT_SERVICE,
+            "execute",
+            json!([db, uid, login, object, "fields_get"]),
+        );
         //println!(r#"resp: {:#?}"#, resp);
         let mut fields = BTreeMap::<String, FieldDescriptor>::new();
 
@@ -495,21 +508,20 @@ impl OdooApi {
         object: &str,
         domain: Value,
     ) -> Result<Vec<u32>, reqwest::Error> {
-        let params = json!({
-            "service": "object",
-            "method": "execute_kw",
-            "args": [db, uid, login, object, "search", (domain,),
+        let args = json!(
+            [db, uid, login, object, "search", (domain,),
              {
-                "context": {"lang": "en_US",
-                "current_week": "2107",
-                "tz": "Europe/Paris",
-                "uid": 1,
-                "current_week2": "2018"
-            }}]
-        });
-        let payload = self.cli.encode_query("call", params);
-        self.cli
-            .decode_response::<Vec<u32>>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
+                "context": {
+                    "lang": "en_US",
+                    "current_week": "2107",
+                    "tz": "Europe/Paris",
+                    "uid": 1,
+                    "current_week2": "2018"
+                }
+            }]
+        );
+        let resp = self.odoo_service_call(&OBJECT_SERVICE, "execute_kw", args);
+        self.cli.decode_response::<Vec<u32>>(resp)
     }
     pub fn object_read(
         &self,
@@ -521,23 +533,22 @@ impl OdooApi {
         fields: Vec<String>,
     ) -> Result<Value, reqwest::Error> {
         let ids = json!(ids);
-        let params = json!({
-            "service": "object",
-            "method": "execute_kw",
-            "args": [db, uid, login, object, "read", (ids, fields),
+        let args = json!(
+            [db, uid, login, object, "read", (ids, fields),
              {
-                "context": {"lang": "en_US",
-                "current_week": "2107",
-                "tz": "Europe/Paris",
-                "uid": 1,
-                "current_week2": "2018"
-            }}]
-        });
-        let payload = self.cli.encode_query("call", params);
-        self.cli
-            .decode_response::<Value>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
+                "context": {
+                    "lang": "en_US",
+                    "current_week": "2107",
+                    "tz": "Europe/Paris",
+                    "uid": 1,
+                    "current_week2": "2018"
+                }
+            }]
+        );
+        let resp = self.odoo_service_call(&OBJECT_SERVICE, "execute_kw", args);
+        self.cli.decode_response::<Value>(resp)
     }
-    pub fn object_call(
+    pub fn recordset_call(
         &self,
         db: &str,
         uid: u32,
@@ -546,25 +557,21 @@ impl OdooApi {
         ids: &Vec<u32>,
         method: &str,
         args: Value,
-        kwargs: Option<Value>
+        _kwargs: Option<Value>,
     ) -> Result<Value, reqwest::Error> {
-        let ids = json!(ids);
-        let params = json!({
-            "service": "object",
-            "method": "execute_kw",
-            "args": [db, uid, login, object, method, (ids, args),
+        let args = json!(
+            [db, uid, login, object, method, (ids, args),
              {
                 "context": {"lang": "en_US",
                 "current_week": "2107",
                 "tz": "Europe/Paris",
                 "uid": 1,
                 "current_week2": "2018"
-            }}]
-        });
-        let payload = self.cli.encode_query("call", params);
-        self.cli
-            .decode_response::<Value>(self.cli.send_payload(self.jsonrpc_url.as_str(), payload))
-    }}
+            }}]);
+        let resp = self.odoo_service_call(&OBJECT_SERVICE, "execute_kw", args);
+        self.cli.decode_response::<Value>(resp)
+    }
+}
 
 /// Obtain Odoo Server URL from environment variables
 ///

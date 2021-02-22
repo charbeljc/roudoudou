@@ -10,18 +10,24 @@ use dotenv::dotenv;
 pub use serde_json::json;
 pub use serde_json::{Map, Number, Value};
 use std::env;
-use std::io;
 
-use roudoudou::{OdooApi, OdooRpc, SessionInfo};
+use roudoudou::{OdooApi, OdooRpc, SessionInfo, Error};
 
-fn main() -> io::Result<()> {
+fn main() -> Result<(), Error> {
     dotenv().ok();
 
     let rpc = OdooRpc::new();
 
     let api = OdooApi::new(rpc);
 
-    let version = api.version_info().unwrap();
+    let version = match api.version_info() {
+    
+        Ok(version) => version,
+        Err(err) => {
+            eprintln!("Could not get version info from server: {:#?}", err);
+            return Err(err);
+        }
+    };
     println!("version: {:#?}", version);
     let res: SessionInfo = api.login("tec-528", "admin", "admin").unwrap();
     println!("login: res: {:#?}", res);
