@@ -59,6 +59,8 @@ fn reflect_stock_label_methods() {
             "recompute_sql",
             "reset_parts",
             "search",
+            "servicing_ota_historize",
+            "servicing_ota_init_history",
             "servicing_ota_query",
             "servicing_ota_update",
             "show_traceability",
