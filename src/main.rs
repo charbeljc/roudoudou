@@ -136,7 +136,7 @@ fn main() -> Result<(), Error> {
         Some(json!((1, 2, 3))),
         Some(json!({"say": "Viva l'Algérie !"})),
     );
-    println!("foobar result: {:?}", res);
+    println!("foobar result: {:#?}", res);
 
     match env::var("DB_PASSWORD") {
         Ok(password) => {

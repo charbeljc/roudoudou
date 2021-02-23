@@ -21,9 +21,9 @@ use reqwest::blocking::Response;
 extern crate error_chain;
 error_chain! {
     errors {
-        RpcError(t: Value) {
+        RpcError(t: ServerError) {
             description("blrub")
-            display("blaaah: {}", t)
+            display("blaaah: {:?}", t)
         }
         MyOtherError(t: String) {
             description("blrub")
@@ -152,7 +152,21 @@ pub struct RpcResponse {
 pub struct RpcError {
     jsonrpc: String,
     id: u32,
-    error: Value,
+    error: ServerError,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ServerError {
+    pub code: u16,
+    pub data: OdooError
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OdooError {
+    pub name: String,
+    pub message: String,
+    pub exception_type: String,
+    pub arguments: Vec<Value>,
+    pub debug: String,
 }
 
 const ODOO_SERVER_VERSION: &str = "/web/webclient/version_info";
@@ -202,9 +216,9 @@ impl OdooRpc {
             Ok(resp) => {
                 match resp.text().chain_err(|| "could not get response body") {
                     Ok(raw) => {
-                
+                        debug!("raw response: {}", raw);
                         let j = serde_json::from_str::<Value>(&raw).unwrap();
-                        debug!("raw response: {:#?}", j);
+                        debug!("serde response: {:#?}", j);
                         if let Some(_i) = j.get("result") {
                             let resp = serde_json::from_value::<RpcResponse>(j).unwrap();
                             let res: Value = resp.result;
@@ -214,9 +228,10 @@ impl OdooRpc {
                         } else if let Some(_) = j.get("error") {
                             let rcp_err = serde_json::from_value::<RpcError>(j).unwrap();
                             let res = rcp_err.error;
+
                             Err(Error::from(ErrorKind::RpcError(res)))
                         } else {
-                            Err(Error::from(ErrorKind::MyOtherError("zooo".to_owned())))
+                            Err(Error::from(ErrorKind::MyOtherError(format!("Unknown payload: {:#}?", raw))))
                         }
                     }
                     Err(err) => Err(err)
