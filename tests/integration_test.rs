@@ -1,8 +1,8 @@
 mod common;
+use log::error;
+use pretty_assertions::{assert_eq, assert_ne};
 use roudoudou::OdooClient;
 use serde_json::json;
-use log::{error};
-use pretty_assertions::{assert_eq, assert_ne};
 #[test]
 fn reflect_stock_label_methods() {
     common::setup();

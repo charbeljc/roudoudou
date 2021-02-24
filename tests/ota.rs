@@ -26,29 +26,32 @@ fn test_dblist() {
     let api = OdooApi::new(rpc);
 
     let dblist = api.db_list().unwrap();
-    assert_eq!(dblist, vec![
-        "charbel",
-         "ota",
-         "ota2",
-         "prod",
-         "prod2",
-         "prod_snapshot_2020_12_29",
-         "produpgrade",
-         "suppliers",
-         "tec-528",
-         "test",
-         "traca",
-         "usgaap",
-    ]);
+    assert_eq!(
+        dblist,
+        vec![
+            "charbel",
+            "ota",
+            "ota2",
+            "prod",
+            "prod2",
+            "prod_snapshot_2020_12_29",
+            "produpgrade",
+            "suppliers",
+            "tec-528",
+            "test",
+            "traca",
+            "usgaap",
+        ]
+    );
 }
 
 macro_rules! assert_attr_eq {
     ($obj:expr, $name:ident, None) => {
-           assert_eq!(($obj).attr(stringify!($name)), None)
+        assert_eq!(($obj).attr(stringify!($name)), None)
     };
     ($obj:expr, $name:ident, $expr:tt) => {
-        assert_eq!(($obj).attr(stringify!($name)),  Some(&json!($expr)))
-    }
+        assert_eq!(($obj).attr(stringify!($name)), Some(&json!($expr)))
+    };
 }
 #[test]
 fn ota_update_a0014_os_version() {
@@ -71,7 +74,7 @@ fn ota_update_a0014_os_version() {
                 Ok(labels) => {
                     assert_attr_eq!(labels, name, "A0014");
                     assert_attr_eq!(labels, os_version, "OPM7.DBLG.012");
-                    assert_attr_eq!(labels, app_version,"1.3.1.9-dblg1-full-commercial");
+                    assert_attr_eq!(labels, app_version, "1.3.1.9-dblg1-full-commercial");
                     assert_attr_eq!(labels, updater_version, "1.4.0.28");
                     assert_attr_eq!(labels, supervisor_version, "0.0.1");
                     assert_attr_eq!(labels, pin_reset_version, "0.0.1");
@@ -126,8 +129,7 @@ fn ota_update_a0014_os_version() {
                         Ok(updated) => {
                             assert_attr_eq!(updated, name, "A0014");
                             assert_attr_eq!(updated, os_version, "0.0.1");
-                            assert_attr_eq!(updated, app_version,
-                                 "1.3.1.9-dblg1-full-commercial");
+                            assert_attr_eq!(updated, app_version, "1.3.1.9-dblg1-full-commercial");
                             assert_attr_eq!(updated, updater_version, "1.4.0.28");
                             assert_attr_eq!(updated, supervisor_version, "0.0.1");
                             assert_attr_eq!(updated, pin_reset_version, "0.0.1");
@@ -148,7 +150,6 @@ fn ota_update_a0014_os_version() {
     };
     cli.logout().unwrap();
 }
-
 
 #[test]
 fn ota_update_a0016_os_version() {
@@ -171,8 +172,11 @@ fn ota_update_a0016_os_version() {
                 Ok(labels) => {
                     assert_attr_eq!(labels, name, "A0016");
                     assert_attr_eq!(labels, os_version, "DBLG1.PROD.RELEASE.023");
-                    assert_attr_eq!(labels, app_version,
-                         "1.8.1.28-dblg1-full-commercial-insight-release");
+                    assert_attr_eq!(
+                        labels,
+                        app_version,
+                        "1.8.1.28-dblg1-full-commercial-insight-release"
+                    );
                     assert_attr_eq!(labels, updater_version, "1.4.0.28");
                     assert_attr_eq!(labels, supervisor_version, "1.1.0.28");
                     assert_attr_eq!(labels, pin_reset_version, "1.1.0.28");
@@ -228,8 +232,10 @@ fn ota_update_a0016_os_version() {
                             assert_attr_eq!(updated, name, "A0016");
                             assert_attr_eq!(updated, os_version, "0.0.1");
                             assert_attr_eq!(
-                                updated, app_version,
-                                 "1.8.1.28-dblg1-full-commercial-insight-release");
+                                updated,
+                                app_version,
+                                "1.8.1.28-dblg1-full-commercial-insight-release"
+                            );
                             assert_attr_eq!(updated, updater_version, "1.4.0.28");
                             assert_attr_eq!(updated, supervisor_version, "1.1.0.28");
                             assert_attr_eq!(updated, pin_reset_version, "1.1.0.28");
@@ -250,4 +256,3 @@ fn ota_update_a0016_os_version() {
     };
     cli.logout().unwrap();
 }
-
