@@ -1,6 +1,6 @@
 mod common;
-use roudoudou::{OdooRpc, OdooApi, OdooClient, OString};
-use log::{trace, debug, info, warn, error};
+use log::{debug, error, info, trace, warn};
+use roudoudou::{OString, OdooApi, OdooClient, OdooRpc};
 use serde_json::json;
 
 #[test]
@@ -24,13 +24,13 @@ fn test_dblist() {
     let api = OdooApi::new(rpc);
 
     let dblist = api.db_list().unwrap();
-    
+
     debug!("dblist: {:#?}", dblist);
-    assert!(dblist.iter().any(|x| x == "test"));
+    assert!(dblist.iter().any(|x| x == "ota3"));
 }
 
 #[test]
-fn test_select_handsets() {
+fn ota_update_a0014_os_version() {
     common::setup();
     let mut cli = OdooClient::new();
 
@@ -50,10 +50,74 @@ fn test_select_handsets() {
                 Ok(labels) => {
                     assert_eq!(labels.attr("name"), Some(&json!("A0014")));
                     assert_eq!(labels.attr("os_version"), Some(&json!("OPM7.DBLG.012")));
-                    assert_eq!(labels.attr("app_version"), Some(&json!("1.3.1.9-dblg1-full-commercial")));
+                    assert_eq!(
+                        labels.attr("app_version"),
+                        Some(&json!("1.3.1.9-dblg1-full-commercial"))
+                    );
                     assert_eq!(labels.attr("updater_version"), Some(&json!("1.4.0.28")));
                     assert_eq!(labels.attr("supervisor_version"), Some(&json!("0.0.1")));
                     assert_eq!(labels.attr("pin_reset_version"), Some(&json!("0.0.1")));
+
+                    match labels.call("servicing_ota_query", None, None) {
+                        Ok(value) => {
+                            info!("success calling method: {:#?}", value);
+                        }
+                        Err(err) => {
+                            error!("calling method: {}", err);
+                        }
+                    }
+                    let empty: Option<String> = None;
+                    match labels.call(
+                        "servicing_ota_update",
+                        Some(json!(json!({
+                                "os": {
+                                    "version": "0.0.1",
+                                    "apk:": empty
+                                }
+                        })
+                        .to_string())),
+                        None,
+                    ) {
+                        Ok(value) => {
+                            info!("success calling method: {:#?}", value);
+                        }
+                        Err(err) => {
+                            error!("calling method: {}", err);
+                        }
+                    }
+                    match labels.call("servicing_ota_query", None, None) {
+                        Ok(value) => {
+                            info!("success calling method: {:#?}", value);
+                        }
+                        Err(err) => {
+                            error!("calling method: {}", err);
+                        }
+                    }
+                    match StockLabel.browse(&labels.ids) {
+                        Err(err) => {
+                            error!("could not browse records: {}", err)
+                        }
+                        Ok(updated) => {
+                            assert_eq!(updated.attr("name"), Some(&json!("A0014")));
+                            assert_eq!(updated.attr("os_version"), Some(&json!("0.0.1")));
+                            assert_eq!(
+                                updated.attr("app_version"),
+                                Some(&json!("1.3.1.9-dblg1-full-commercial"))
+                            );
+                            assert_eq!(updated.attr("updater_version"), Some(&json!("1.4.0.28")));
+                            assert_eq!(updated.attr("supervisor_version"), Some(&json!("0.0.1")));
+                            assert_eq!(updated.attr("pin_reset_version"), Some(&json!("0.0.1")));
+                        }
+                    }
+
+                    match labels.call("servicing_ota_query", None, None) {
+                        Ok(value) => {
+                            info!("success calling method: {:#?}", value);
+                        }
+                        Err(err) => {
+                            error!("calling method: {}", err);
+                        }
+                    }
                 }
             }
         }
@@ -61,4 +125,3 @@ fn test_select_handsets() {
     cli.logout().unwrap();
     info!("bye bye!!")
 }
-

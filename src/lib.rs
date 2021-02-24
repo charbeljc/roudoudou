@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize, Serializer, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
 use serde_json::Map;
 use serde_json::Value;
@@ -48,7 +48,7 @@ error_chain! {
 #[serde(untagged)]
 pub enum OString {
     Filled(String),
-    Absent(bool)
+    Absent(bool),
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -173,7 +173,7 @@ pub struct RpcError {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerError {
     pub code: u16,
-    pub data: OdooError
+    pub data: OdooError,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OdooError {
@@ -184,7 +184,7 @@ pub struct OdooError {
     // #[serde(serialize_with = "njoin")]
     // #[serde(deserialize_with = "nsplit")]
     // pub debug: Vec<String>,
-    pub debug: String
+    pub debug: String,
 }
 // fn njoin<S>(debug: Vec<String>, ser: S) -> Result<S::Ok> where S: Serializer {
 //     let json = serde_json::json!(debug);
@@ -263,13 +263,16 @@ impl OdooRpc {
 
                             Err(Error::from(ErrorKind::RpcError(res)))
                         } else {
-                            Err(Error::from(ErrorKind::MyOtherError(format!("Unknown payload: {:#}?", raw))))
+                            Err(Error::from(ErrorKind::MyOtherError(format!(
+                                "Unknown payload: {:#}?",
+                                raw
+                            ))))
                         }
                     }
-                    Err(err) => Err(err)
+                    Err(err) => Err(err),
                 }
             }
-            Err(err) => Err(err)
+            Err(err) => Err(err),
         }
     }
 }
@@ -293,19 +296,21 @@ impl OdooClient {
         let rpc = OdooRpc::new();
         OdooClient {
             api: OdooApi::new(rpc),
-            session: None
+            session: None,
         }
     }
     pub fn is_connected(&self) -> bool {
         if let Some(_) = self.session {
             true
         } else {
-           false
+            false
         }
-    }   
+    }
     pub fn login(&mut self, db: &str, user: &str, password: &str) -> Result<&Self> {
         if self.is_connected() {
-            return Err(Error::from_kind(ErrorKind::ClientState("already connected".to_owned())));
+            return Err(Error::from_kind(ErrorKind::ClientState(
+                "already connected".to_owned(),
+            )));
         }
         let session = self.api.login(db, user, password);
         match session {
@@ -314,11 +319,13 @@ impl OdooClient {
                 self.session = Some(session);
                 Ok(self)
             }
-        } 
+        }
     }
     pub fn logout(&mut self) -> Result<&Self> {
         if !self.is_connected() {
-            return Err(Error::from_kind(ErrorKind::ClientState("already connected".to_owned())));
+            return Err(Error::from_kind(ErrorKind::ClientState(
+                "already connected".to_owned(),
+            )));
         }
         let res = self.api.logout();
         match res {
@@ -331,22 +338,20 @@ impl OdooClient {
     }
     pub fn get_model(&self, name: &str) -> Result<Model> {
         match &self.session {
-            None => Err(Error::from_kind(ErrorKind::ClientState("not connected".to_owned()))),
+            None => Err(Error::from_kind(ErrorKind::ClientState(
+                "not connected".to_owned(),
+            ))),
             Some(session) => {
-
-                match self.api.object_fields_get(
-                    &session.db,
-                    session.uid,
-                    &session.username,
-                   name
-                ) {
+                match self
+                    .api
+                    .object_fields_get(&session.db, session.uid, &session.username, name)
+                {
                     Ok(desc) => Ok(Model { desc, cli: self }),
                     Err(err) => Err(err),
                 }
             }
         }
     }
-
 }
 /// Odoo Model object
 pub struct Model<'a> {
@@ -362,27 +367,21 @@ impl fmt::Debug for Model<'_> {
 }
 
 impl Model<'_> {
-    pub fn call(
-        &self,
-        method: &str,
-        args: Option<Value>,
-        kwargs: Option<Value>,
-    ) -> Result<Value> {
+    pub fn call(&self, method: &str, args: Option<Value>, kwargs: Option<Value>) -> Result<Value> {
         match &self.cli.session {
-            None => Err(Error::from_kind(ErrorKind::ClientState("not connected".to_owned()))),
-            Some(session) => {
-
-                self.cli.api.recordset_call(
-                    &session.db,
-                    1,
-                    "admin",
-                    &self.desc.name,
-                    None,
-                    method,
-                    args,
-                    kwargs,
-                )
-            }
+            None => Err(Error::from_kind(ErrorKind::ClientState(
+                "not connected".to_owned(),
+            ))),
+            Some(session) => self.cli.api.recordset_call(
+                &session.db,
+                1,
+                "admin",
+                &self.desc.name,
+                None,
+                method,
+                args,
+                kwargs,
+            ),
         }
     }
 }
@@ -405,27 +404,20 @@ impl RecordSet<'_> {
         }
     }
     /// call `method` on this `RecordSet`
-    pub fn call(
-        &self,
-        method: &str,
-        args: Option<Value>,
-        kwargs: Option<Value>,
-    ) -> Result<Value> {
+    pub fn call(&self, method: &str, args: Option<Value>, kwargs: Option<Value>) -> Result<Value> {
         debug!("call {:?}::{}({:?})", self, method, args);
         match &self.model.cli.session {
-            None => { Err(Error::from_kind(ErrorKind::NotConnected)) },
-            Some(session) => {
-                self.model.cli.api.recordset_call(
-                    &session.db,
-                    1,
-                    "admin",
-                    &self.model.desc.name,
-                    Some(&self.ids),
-                    method,
-                    args,
-                    kwargs,
-                )
-            }
+            None => Err(Error::from_kind(ErrorKind::NotConnected)),
+            Some(session) => self.model.cli.api.recordset_call(
+                &session.db,
+                1,
+                "admin",
+                &self.model.desc.name,
+                Some(&self.ids),
+                method,
+                args,
+                kwargs,
+            ),
         }
     }
 }
@@ -443,37 +435,34 @@ impl Model<'_> {
         match &self.cli.session {
             None => Err(Error::from_kind(ErrorKind::NotConnected)),
             Some(session) => {
-                self.cli.api
-                    .object_search(
-                        &session.db, 1, "admin", &self.desc.name, domain)
-
+                self.cli
+                    .api
+                    .object_search(&session.db, 1, "admin", &self.desc.name, domain)
             }
         }
     }
 
     pub fn browse(&self, ids: &Vec<u32>) -> Result<RecordSet> {
-        let names = self.desc.fields
+        let names = self
+            .desc
+            .fields
             .iter()
             .map(|(name, _)| name.as_str())
             .collect::<Vec<&str>>();
         match self.read(&ids, &names) {
             Err(err) => Err(err),
-            Ok(data) => {
-                Ok(RecordSet {
-                    ids: ids.to_owned(),
-                    model: self,
-                    data
-                })
-            }
+            Ok(data) => Ok(RecordSet {
+                ids: ids.to_owned(),
+                model: self,
+                data,
+            }),
         }
     }
 
     pub fn search_browse(&self, domain: Value) -> Result<RecordSet> {
         match self.search(domain) {
             Err(err) => Err(err),
-            Ok(ids) => {
-                self.browse(&ids)
-            }
+            Ok(ids) => self.browse(&ids),
         }
     }
 
@@ -481,20 +470,16 @@ impl Model<'_> {
         match &self.cli.session {
             None => Err(Error::from_kind(ErrorKind::NotConnected)),
             Some(session) => {
-
-                let data = self
-                    .cli.api
-                    .object_read(
-                        &session.db,
-                        1, "admin", &self.desc.name, ids, names);
+                let data =
+                    self.cli
+                        .api
+                        .object_read(&session.db, 1, "admin", &self.desc.name, ids, names);
                 match data {
                     Err(err) => Err(err),
-                    Ok(data) => {
-                        match serde_json::from_value::<Vec<Value>>(data) {
-                            Err(err) => Err(Error::from_kind(ErrorKind::JsonError(err))),
-                            Ok(data) => Ok(data)
-                        }
-                    }
+                    Ok(data) => match serde_json::from_value::<Vec<Value>>(data) {
+                        Err(err) => Err(Error::from_kind(ErrorKind::JsonError(err))),
+                        Ok(data) => Ok(data),
+                    },
                 }
             }
         }
@@ -547,12 +532,7 @@ impl OdooApi {
         )
     }
 
-    pub fn login(
-        &self,
-        db: &str,
-        login: &str,
-        password: &str,
-    ) -> Result<SessionInfo> {
+    pub fn login(&self, db: &str, login: &str, password: &str) -> Result<SessionInfo> {
         let params = json!({"db": db, "login": login, "password": password});
         let payload = self.cli.encode_query("call", params);
         self.cli
@@ -593,12 +573,7 @@ impl OdooApi {
         let resp = self.odoo_service_call(&DB_SERVICE, "list", json!([]));
         self.cli.decode_response::<Vec<String>>(resp)
     }
-    pub fn db_dump(
-        &self,
-        master_password: &str,
-        db: &str,
-        path: &str,
-    ) -> Result<()> {
+    pub fn db_dump(&self, master_password: &str, db: &str, path: &str) -> Result<()> {
         let resp = self.odoo_service_call(&DB_SERVICE, "dump", json!([master_password, db, "zip"]));
         let data = self.cli.decode_response::<String>(resp); // FIXME: allocating a whole data dump is bad ...
         match data {
@@ -844,7 +819,8 @@ pub fn odoo_url_from_env() -> Result<Url> {
                     443 | 80 => "".to_owned(),
                     port => format!(":{}", port),
                 }
-            )).chain_err(|| "invalid url")
+            ))
+            .chain_err(|| "invalid url")
         }
     }
 }
@@ -883,7 +859,10 @@ mod tests {
         env::set_var("ODOO_HOST", "localhost");
         env::set_var("ODOO_PORT", "8069");
 
-        assert_eq!(odoo_url_from_env().unwrap(), Url::parse("http://example.com").unwrap());
+        assert_eq!(
+            odoo_url_from_env().unwrap(),
+            Url::parse("http://example.com").unwrap()
+        );
     }
 
     #[test]
@@ -895,7 +874,10 @@ mod tests {
         env::set_var("ODOO_HOST", "example.com");
         env::set_var("ODOO_PORT", "8068");
 
-        assert_eq!(odoo_url_from_env().unwrap(), Url::parse("http://example.com:8068").unwrap());
+        assert_eq!(
+            odoo_url_from_env().unwrap(),
+            Url::parse("http://example.com:8068").unwrap()
+        );
     }
 
     #[test]
@@ -907,7 +889,10 @@ mod tests {
         env::set_var("ODOO_HOST", "example.com");
         env::set_var("ODOO_PORT", "80");
 
-        assert_eq!(odoo_url_from_env().unwrap(), Url::parse("http://example.com").unwrap());
+        assert_eq!(
+            odoo_url_from_env().unwrap(),
+            Url::parse("http://example.com").unwrap()
+        );
     }
 
     #[test]
@@ -919,7 +904,10 @@ mod tests {
         env::set_var("ODOO_HOST", "example.com");
         env::set_var("ODOO_PORT", "443");
 
-        assert_eq!(odoo_url_from_env().unwrap(), Url::parse("https://example.com").unwrap());
+        assert_eq!(
+            odoo_url_from_env().unwrap(),
+            Url::parse("https://example.com").unwrap()
+        );
     }
 
     #[test]

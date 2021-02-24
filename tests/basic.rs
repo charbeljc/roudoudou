@@ -1,6 +1,6 @@
 mod common;
-use roudoudou::{OdooApi, OdooRpc, OString};
 use log::debug;
+use roudoudou::{OString, OdooApi, OdooRpc};
 
 #[test]
 fn test_version_info() {
@@ -23,7 +23,7 @@ fn test_dblist() {
     let api = OdooApi::new(rpc);
 
     let dblist = api.db_list().unwrap();
-    
+
     debug!("dblist: {:#?}", dblist);
     assert!(dblist.iter().any(|x| x == "test"));
 }
@@ -40,4 +40,3 @@ fn test_login_logout() {
     let status = api.logout();
     debug!("status: {:#?}", status)
 }
-

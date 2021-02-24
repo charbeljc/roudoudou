@@ -1,8 +1,9 @@
-use std::sync::Once;
 use dotenv::dotenv;
+use log::debug;
 use ngrok2;
 use std::env;
-use::log::debug;
+use std::process::Command;
+use std::{borrow::Borrow, sync::Once};
 
 static START: Once = Once::new();
 
@@ -17,5 +18,15 @@ pub fn setup() {
         //     .run().unwrap();
         // let public_url = tunnel.http().unwrap();
         // env::set_var("ODOO_URL", public_url.as_str());
+        stellar_restore();
     });
+}
+
+pub fn stellar_restore() {
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg("stellar restore")
+        .output()
+        .expect("failed to restore db snapshot");
+    debug!("output: {:?}", output.stdout);
 }

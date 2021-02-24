@@ -1,5 +1,5 @@
 mod common;
-use roudoudou::{OdooClient};
+use roudoudou::OdooClient;
 use serde_json::json;
 
 #[test]
@@ -89,27 +89,30 @@ fn it_should_work_too() {
     let cli = OdooClient::new();
     let model = cli.get_model("res.users").unwrap();
     let res = model.call("get_public_methods", None, None).unwrap();
-    assert_eq!(res, json!([
-        "check_can_login",
-        "compute_concurrency_field",
-        "compute_concurrency_field_with_access",
-        "do_action_on_login",
-        "exists",
-        "export_data",
-        "get_metadata",
-        "get_public_methods",
-        "invalidate_cache",
-        "modified",
-        "name_create",
-        "name_get",
-        "new",
-        "onchange",
-        "recompute",
-        "recompute_sql",
-        "refresh",
-        "reset_attempt",
-        "search",
-        "toggle_active",
-        "user_has_group_ids"
-    ]));
+    assert_eq!(
+        res,
+        json!([
+            "check_can_login",
+            "compute_concurrency_field",
+            "compute_concurrency_field_with_access",
+            "do_action_on_login",
+            "exists",
+            "export_data",
+            "get_metadata",
+            "get_public_methods",
+            "invalidate_cache",
+            "modified",
+            "name_create",
+            "name_get",
+            "new",
+            "onchange",
+            "recompute",
+            "recompute_sql",
+            "refresh",
+            "reset_attempt",
+            "search",
+            "toggle_active",
+            "user_has_group_ids"
+        ])
+    );
 }
