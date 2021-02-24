@@ -1,9 +1,9 @@
 mod common;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info};
 use roudoudou::{OString, OdooApi, OdooClient, OdooRpc};
 use serde_json::json;
 
-use pretty_assertions::{assert_eq, assert_ne};
+use pretty_assertions::assert_eq;
 
 #[test]
 fn test_version_info() {
@@ -42,6 +42,14 @@ fn test_dblist() {
     ]);
 }
 
+macro_rules! assert_attr_eq {
+    ($obj:expr, $name:ident, None) => {
+           assert_eq!(($obj).attr(stringify!($name)), None)
+    };
+    ($obj:expr, $name:ident, $expr:tt) => {
+        assert_eq!(($obj).attr(stringify!($name)),  Some(&json!($expr)))
+    }
+}
 #[test]
 fn ota_update_a0014_os_version() {
     common::setup();
@@ -61,15 +69,20 @@ fn ota_update_a0014_os_version() {
                     error!("search error: {:#?}", err);
                 }
                 Ok(labels) => {
-                    assert_eq!(labels.attr("name"), Some(&json!("A0014")));
-                    assert_eq!(labels.attr("os_version"), Some(&json!("OPM7.DBLG.012")));
-                    assert_eq!(
-                        labels.attr("app_version"),
-                        Some(&json!("1.3.1.9-dblg1-full-commercial"))
-                    );
-                    assert_eq!(labels.attr("updater_version"), Some(&json!("1.4.0.28")));
-                    assert_eq!(labels.attr("supervisor_version"), Some(&json!("0.0.1")));
-                    assert_eq!(labels.attr("pin_reset_version"), Some(&json!("0.0.1")));
+                    assert_attr_eq!(labels, name, "A0014");
+                    assert_attr_eq!(labels, os_version, "OPM7.DBLG.012");
+                    assert_attr_eq!(labels, app_version,"1.3.1.9-dblg1-full-commercial");
+                    assert_attr_eq!(labels, updater_version, "1.4.0.28");
+                    assert_attr_eq!(labels, supervisor_version, "0.0.1");
+                    assert_attr_eq!(labels, pin_reset_version, "0.0.1");
+
+                    assert_attr_eq!(labels, system, "G1");
+                    assert_attr_eq!(labels, pump_type, "insight");
+                    assert_attr_eq!(labels, transmitter_type, "dexcom G6");
+                    assert_attr_eq!(labels, measure, "mg/dl");
+                    assert_attr_eq!(labels, market, "commercial");
+                    assert_attr_eq!(labels, country, "DE");
+                    assert_attr_eq!(labels, lang, "de");
 
                     match labels.call("servicing_ota_query", None, None) {
                         Ok(value) => {
@@ -111,15 +124,13 @@ fn ota_update_a0014_os_version() {
                             error!("could not browse records: {}", err)
                         }
                         Ok(updated) => {
-                            assert_eq!(updated.attr("name"), Some(&json!("A0014")));
-                            assert_eq!(updated.attr("os_version"), Some(&json!("0.0.1")));
-                            assert_eq!(
-                                updated.attr("app_version"),
-                                Some(&json!("1.3.1.9-dblg1-full-commercial"))
-                            );
-                            assert_eq!(updated.attr("updater_version"), Some(&json!("1.4.0.28")));
-                            assert_eq!(updated.attr("supervisor_version"), Some(&json!("0.0.1")));
-                            assert_eq!(updated.attr("pin_reset_version"), Some(&json!("0.0.1")));
+                            assert_attr_eq!(updated, name, "A0014");
+                            assert_attr_eq!(updated, os_version, "0.0.1");
+                            assert_attr_eq!(updated, app_version,
+                                 "1.3.1.9-dblg1-full-commercial");
+                            assert_attr_eq!(updated, updater_version, "1.4.0.28");
+                            assert_attr_eq!(updated, supervisor_version, "0.0.1");
+                            assert_attr_eq!(updated, pin_reset_version, "0.0.1");
                         }
                     }
 
@@ -137,3 +148,106 @@ fn ota_update_a0014_os_version() {
     };
     cli.logout().unwrap();
 }
+
+
+#[test]
+fn ota_update_a0016_os_version() {
+    common::setup();
+    let mut cli = OdooClient::new();
+
+    match cli.login("ota3", "admin", "admin") {
+        Err(err) => {
+            error!("could not login: {:#?}", err)
+        }
+        Ok(_) => {
+            //debug!("session: {:#?}", session);
+            let StockLabel = cli.get_model("stock.label").unwrap();
+            let domain = json!([("name", "=", "A0016")]);
+            debug!("search domain: {:?}", domain);
+            match StockLabel.search_browse(domain) {
+                Err(err) => {
+                    error!("search error: {:#?}", err);
+                }
+                Ok(labels) => {
+                    assert_attr_eq!(labels, name, "A0016");
+                    assert_attr_eq!(labels, os_version, "DBLG1.PROD.RELEASE.023");
+                    assert_attr_eq!(labels, app_version,
+                         "1.8.1.28-dblg1-full-commercial-insight-release");
+                    assert_attr_eq!(labels, updater_version, "1.4.0.28");
+                    assert_attr_eq!(labels, supervisor_version, "1.1.0.28");
+                    assert_attr_eq!(labels, pin_reset_version, "1.1.0.28");
+
+                    assert_attr_eq!(labels, system, "G1");
+                    assert_attr_eq!(labels, pump_type, "insight");
+                    assert_attr_eq!(labels, transmitter_type, "dexcom G6");
+                    assert_attr_eq!(labels, measure, "mg/dl");
+                    assert_attr_eq!(labels, market, "commercial");
+                    assert_attr_eq!(labels, country, "IT");
+                    assert_attr_eq!(labels, lang, "it");
+
+                    match labels.call("servicing_ota_query", None, None) {
+                        Ok(value) => {
+                            info!("success calling method: {:#?}", value);
+                        }
+                        Err(err) => {
+                            error!("calling method: {}", err);
+                        }
+                    }
+                    let empty: Option<String> = None;
+                    match labels.call(
+                        "servicing_ota_update",
+                        Some(json!(json!({
+                                "os": {
+                                    "version": "0.0.1",
+                                    "apk:": empty
+                                }
+                        })
+                        .to_string())),
+                        None,
+                    ) {
+                        Ok(value) => {
+                            info!("success calling method: {:#?}", value);
+                        }
+                        Err(err) => {
+                            error!("calling method: {}", err);
+                        }
+                    }
+                    match labels.call("servicing_ota_query", None, None) {
+                        Ok(value) => {
+                            info!("success calling method: {:#?}", value);
+                        }
+                        Err(err) => {
+                            error!("calling method: {}", err);
+                        }
+                    }
+                    match StockLabel.browse(&labels.ids) {
+                        Err(err) => {
+                            error!("could not browse records: {}", err)
+                        }
+                        Ok(updated) => {
+                            assert_attr_eq!(updated, name, "A0016");
+                            assert_attr_eq!(updated, os_version, "0.0.1");
+                            assert_attr_eq!(
+                                updated, app_version,
+                                 "1.8.1.28-dblg1-full-commercial-insight-release");
+                            assert_attr_eq!(updated, updater_version, "1.4.0.28");
+                            assert_attr_eq!(updated, supervisor_version, "1.1.0.28");
+                            assert_attr_eq!(updated, pin_reset_version, "1.1.0.28");
+                        }
+                    }
+
+                    match labels.call("servicing_ota_query", None, None) {
+                        Ok(value) => {
+                            info!("success calling method: {:#?}", value);
+                        }
+                        Err(err) => {
+                            error!("calling method: {}", err);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    cli.logout().unwrap();
+}
+
