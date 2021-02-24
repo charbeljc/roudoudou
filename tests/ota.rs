@@ -3,6 +3,8 @@ use log::{debug, error, info, trace, warn};
 use roudoudou::{OString, OdooApi, OdooClient, OdooRpc};
 use serde_json::json;
 
+use pretty_assertions::{assert_eq, assert_ne};
+
 #[test]
 fn test_version_info() {
     common::setup();
@@ -24,9 +26,20 @@ fn test_dblist() {
     let api = OdooApi::new(rpc);
 
     let dblist = api.db_list().unwrap();
-
-    debug!("dblist: {:#?}", dblist);
-    assert!(dblist.iter().any(|x| x == "ota3"));
+    assert_eq!(dblist, vec![
+        "charbel",
+         "ota",
+         "ota2",
+         "prod",
+         "prod2",
+         "prod_snapshot_2020_12_29",
+         "produpgrade",
+         "suppliers",
+         "tec-528",
+         "test",
+         "traca",
+         "usgaap",
+    ]);
 }
 
 #[test]
@@ -123,5 +136,4 @@ fn ota_update_a0014_os_version() {
         }
     };
     cli.logout().unwrap();
-    info!("bye bye!!")
 }

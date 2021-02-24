@@ -306,7 +306,7 @@ impl OdooClient {
             false
         }
     }
-    pub fn login(&mut self, db: &str, user: &str, password: &str) -> Result<&Self> {
+    pub fn login(&mut self, db: &str, user: &str, password: &str) -> Result<&mut Self> {
         if self.is_connected() {
             return Err(Error::from_kind(ErrorKind::ClientState(
                 "already connected".to_owned(),
@@ -321,7 +321,7 @@ impl OdooClient {
             }
         }
     }
-    pub fn logout(&mut self) -> Result<&Self> {
+    pub fn logout(&mut self) -> Result<&mut Self> {
         if !self.is_connected() {
             return Err(Error::from_kind(ErrorKind::ClientState(
                 "already connected".to_owned(),
