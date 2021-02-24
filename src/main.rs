@@ -72,7 +72,7 @@ fn main() -> Result<(), Error> {
 
     let model = cli.get_model("res.users").unwrap();
     let users = match model.search(json!([("id", ">", 0), ("id", "<", 10)])) {
-        Ok(a) => model.browse(a),
+        Ok(a) => model.browse(&a),
         _ => unreachable!(),
     }
     .unwrap();
@@ -80,7 +80,7 @@ fn main() -> Result<(), Error> {
 
     let model = cli.get_model("ir.module.module").unwrap();
     let ids = model.search(json!([("name", "=", "mrp_fixes")])).unwrap();
-    let module = model.browse(ids).unwrap();
+    let module = model.browse(&ids).unwrap();
     println!("module: {:?}", module);
     //println!("module data: {:#?}", module.data);
     println!("module name: {:?}", module.attr("name"));
@@ -89,7 +89,7 @@ fn main() -> Result<(), Error> {
     let ids = model
         .search(json!([("name", "=", "352719110488433")]))
         .unwrap();
-    let term = model.browse(ids).unwrap();
+    let term = model.browse(&ids).unwrap();
     println!("terminal: {:?}", term);
     println!(
         "name: {:?} is_terminal: {:?} is_diabeloop: {:?}",
@@ -100,7 +100,7 @@ fn main() -> Result<(), Error> {
     let update = json!({"os": {"version": "0.1.0", "apk": "foobar.apk"}});
 
     let card = model.browse(
-        model
+        &model
             .search(json!([("name", "=", "89351060000893708683")]))
             .unwrap(),
     ).unwrap();

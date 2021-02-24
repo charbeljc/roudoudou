@@ -451,7 +451,7 @@ impl Model<'_> {
         }
     }
 
-    pub fn browse(&self, ids: Vec<u32>) -> Result<RecordSet> {
+    pub fn browse(&self, ids: &Vec<u32>) -> Result<RecordSet> {
         let names = self.desc.fields
             .iter()
             .map(|(name, _)| name.as_str())
@@ -460,10 +460,19 @@ impl Model<'_> {
             Err(err) => Err(err),
             Ok(data) => {
                 Ok(RecordSet {
-                    ids,
+                    ids: ids.to_owned(),
                     model: self,
                     data
                 })
+            }
+        }
+    }
+
+    pub fn search_browse(&self, domain: Value) -> Result<RecordSet> {
+        match self.search(domain) {
+            Err(err) => Err(err),
+            Ok(ids) => {
+                self.browse(&ids)
             }
         }
     }

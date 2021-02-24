@@ -43,29 +43,17 @@ fn test_select_handsets() {
             let StockLabel = cli.get_model("stock.label").unwrap();
             let domain = json!([("name", "=", "A0014")]);
             debug!("search domain: {:?}", domain);
-            match StockLabel.search(domain) {
+            match StockLabel.search_browse(domain) {
                 Err(err) => {
                     error!("search error: {:#?}", err);
                 }
-                Ok(ids) => {
-                    info!("got ids: {}", ids.len());
-                    if ids.len() == 0 {
-                        error!("no record found!");
-                    } else {
-                        match StockLabel.browse(ids) {
-                            Err(err) => {
-                                error!("browse error: {:?}", err)
-                            }
-                            Ok(labels) => {
-                                assert_eq!(labels.attr("name"), Some(&json!("A0014")));
-                                assert_eq!(labels.attr("os_version"), Some(&json!("OPM7.DBLG.012")));
-                                assert_eq!(labels.attr("app_version"), Some(&json!("1.3.1.9-dblg1-full-commercial")));
-                                assert_eq!(labels.attr("updater_version"), Some(&json!("1.4.0.28")));
-                                assert_eq!(labels.attr("supervisor_version"), Some(&json!("0.0.1")));
-                                assert_eq!(labels.attr("pin_reset_version"), Some(&json!("0.0.1")));
-                            }
-                        }
-                    }
+                Ok(labels) => {
+                    assert_eq!(labels.attr("name"), Some(&json!("A0014")));
+                    assert_eq!(labels.attr("os_version"), Some(&json!("OPM7.DBLG.012")));
+                    assert_eq!(labels.attr("app_version"), Some(&json!("1.3.1.9-dblg1-full-commercial")));
+                    assert_eq!(labels.attr("updater_version"), Some(&json!("1.4.0.28")));
+                    assert_eq!(labels.attr("supervisor_version"), Some(&json!("0.0.1")));
+                    assert_eq!(labels.attr("pin_reset_version"), Some(&json!("0.0.1")));
                 }
             }
         }
