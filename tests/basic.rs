@@ -1,5 +1,5 @@
 mod common;
-use roudoudou::{OdooApi, OdooRpc};
+use roudoudou::{OdooApi, OdooRpc, OString};
 use log::debug;
 
 #[test]
@@ -10,8 +10,8 @@ fn test_version_info() {
 
     let version = api.version_info().unwrap();
     assert_eq!(version.protocol_version, 1);
-    assert_eq!(version.server_serial, "9.0");
-    assert_eq!(version.server_version, "9.0c");
+    assert_eq!(version.server_serial, OString::Filled("9.0".to_owned()));
+    assert_eq!(version.server_version, OString::Filled("9.0c".to_owned()));
 
     debug!("version: {:#?}", version);
 }

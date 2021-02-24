@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use serde_json::json;
 use serde_json::Map;
 use serde_json::Value;
-use std::{env, fmt};
+use std::{borrow::Borrow, env, fmt};
 use url::{ParseError, Url};
 
 use std::default::Default;
@@ -29,38 +29,53 @@ error_chain! {
             description("blrub")
             display("blaaah: {}", t)
         }
+        ClientState(t: String) {
+            description("odoo client state error")
+            display("ClientState Error: {}", t)
+        }
+        NotConnected {
+            description("odoo client must be connected")
+            display("not connected")
+        }
     }
     foreign_links {
-        Parse(ParseError);
+        ParseError(ParseError);
+        JsonError(serde_json::Error);
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OString {
+    Filled(String),
+    Absent(bool)
+}
+#[derive(Debug, Serialize, Deserialize)]
 pub struct VersionInfo {
     pub protocol_version: u16,
     #[serde(rename = "server_serie")]
-    pub server_serial: String,
-    pub server_version: String,
+    pub server_serial: OString,
+    pub server_version: OString,
     server_version_info: Option<(u16, u16, u16, String, u16, String)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserContext {
-    current_week: String,
-    current_week2: String,
-    pub lang: String,
-    pub tz: String,
+    current_week: OString,
+    current_week2: OString,
+    pub lang: OString,
+    pub tz: OString,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionInfo {
-    company_id: i32,
-    db: String,
-    partner_id: i32,
-    registered_contract: String,
-    session_id: String,
-    uid: i32,
-    user_context: UserContext,
-    username: String,
+    pub company_id: u32,
+    pub db: String,
+    pub partner_id: u32,
+    pub registered_contract: OString,
+    pub session_id: String,
+    pub uid: u32,
+    pub user_context: UserContext,
+    pub username: String,
 }
 /// raw Odoo field descriptor
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -166,8 +181,20 @@ pub struct OdooError {
     pub message: String,
     pub exception_type: String,
     pub arguments: Vec<Value>,
-    pub debug: String,
+    // #[serde(serialize_with = "njoin")]
+    // #[serde(deserialize_with = "nsplit")]
+    // pub debug: Vec<String>,
+    pub debug: String
 }
+// fn njoin<S>(debug: Vec<String>, ser: S) -> Result<S::Ok> where S: Serializer {
+//     let json = serde_json::json!(debug);
+//     Ok(json)
+// }
+
+// fn nsplit<'de, D>(dede: D) -> Result<Vec<String>> where D: Deserializer<'de> {
+//     let empty: Vec::new();
+//     Ok(empty)
+// }
 
 const ODOO_SERVER_VERSION: &str = "/web/webclient/version_info";
 const ODOO_LOGIN: &str = "/web/session/authenticate";
@@ -216,15 +243,20 @@ impl OdooRpc {
             Ok(resp) => {
                 match resp.text().chain_err(|| "could not get response body") {
                     Ok(raw) => {
-                        debug!("raw response: {}", raw);
+                        // debug!("raw response: {}", raw);
                         let j = serde_json::from_str::<Value>(&raw).unwrap();
-                        debug!("serde response: {:#?}", j);
+                        // debug!("serde response: {:#?}", j);
                         if let Some(_i) = j.get("result") {
                             let resp = serde_json::from_value::<RpcResponse>(j).unwrap();
                             let res: Value = resp.result;
                             // debug!("res: {:#?}", res);
-                            let o: T = serde_json::from_value(res).unwrap();
-                            Ok(o)
+                            match serde_json::from_value::<T>(res) {
+                                Ok(o) => Ok(o),
+                                Err(err) => {
+                                    debug!("FAILED to deserialize res: {:#?}", err);
+                                    Err(Error::from(ErrorKind::JsonError(err)))
+                                }
+                            }
                         } else if let Some(_) = j.get("error") {
                             let rcp_err = serde_json::from_value::<RpcError>(j).unwrap();
                             let res = rcp_err.error;
@@ -242,16 +274,84 @@ impl OdooRpc {
     }
 }
 
+#[derive(Debug)]
 pub struct OdooApi {
     cli: OdooRpc,
     version_url: Url,
     login_url: Url,
     logout_url: Url,
 }
+
+#[derive(Debug)]
+pub struct OdooClient {
+    pub api: OdooApi,
+    session: Option<SessionInfo>,
+}
+
+impl OdooClient {
+    pub fn new() -> Self {
+        let rpc = OdooRpc::new();
+        OdooClient {
+            api: OdooApi::new(rpc),
+            session: None
+        }
+    }
+    pub fn is_connected(&self) -> bool {
+        if let Some(_) = self.session {
+            true
+        } else {
+           false
+        }
+    }   
+    pub fn login(&mut self, db: &str, user: &str, password: &str) -> Result<&Self> {
+        if self.is_connected() {
+            return Err(Error::from_kind(ErrorKind::ClientState("already connected".to_owned())));
+        }
+        let session = self.api.login(db, user, password);
+        match session {
+            Err(e) => Err(e),
+            Ok(session) => {
+                self.session = Some(session);
+                Ok(self)
+            }
+        } 
+    }
+    pub fn logout(&mut self) -> Result<&Self> {
+        if !self.is_connected() {
+            return Err(Error::from_kind(ErrorKind::ClientState("already connected".to_owned())));
+        }
+        let res = self.api.logout();
+        match res {
+            Err(e) => Err(e),
+            Ok(val) => {
+                debug!("logout result: {:#?}", val);
+                Ok(self)
+            }
+        }
+    }
+    pub fn get_model(&self, name: &str) -> Result<Model> {
+        match &self.session {
+            None => Err(Error::from_kind(ErrorKind::ClientState("not connected".to_owned()))),
+            Some(session) => {
+
+                match self.api.object_fields_get(
+                    &session.db,
+                    session.uid,
+                    &session.username,
+                   name
+                ) {
+                    Ok(desc) => Ok(Model { desc, cli: self }),
+                    Err(err) => Err(err),
+                }
+            }
+        }
+    }
+
+}
 /// Odoo Model object
 pub struct Model<'a> {
     desc: ObjectDescriptor,
-    api: &'a OdooApi,
+    cli: &'a OdooClient,
 }
 impl fmt::Debug for Model<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
@@ -268,16 +368,22 @@ impl Model<'_> {
         args: Option<Value>,
         kwargs: Option<Value>,
     ) -> Result<Value> {
-        self.api.recordset_call(
-            "tec-528",
-            1,
-            "admin",
-            &self.desc.name,
-            None,
-            method,
-            args,
-            kwargs,
-        )
+        match &self.cli.session {
+            None => Err(Error::from_kind(ErrorKind::ClientState("not connected".to_owned()))),
+            Some(session) => {
+
+                self.cli.api.recordset_call(
+                    &session.db,
+                    1,
+                    "admin",
+                    &self.desc.name,
+                    None,
+                    method,
+                    args,
+                    kwargs,
+                )
+            }
+        }
     }
 }
 /// Odoo RecordSet
@@ -306,16 +412,21 @@ impl RecordSet<'_> {
         kwargs: Option<Value>,
     ) -> Result<Value> {
         debug!("call {:?}::{}({:?})", self, method, args);
-        self.model.api.recordset_call(
-            "tec-528",
-            1,
-            "admin",
-            &self.model.desc.name,
-            Some(&self.ids),
-            method,
-            args,
-            kwargs,
-        )
+        match &self.model.cli.session {
+            None => { Err(Error::from_kind(ErrorKind::NotConnected)) },
+            Some(session) => {
+                self.model.cli.api.recordset_call(
+                    &session.db,
+                    1,
+                    "admin",
+                    &self.model.desc.name,
+                    Some(&self.ids),
+                    method,
+                    args,
+                    kwargs,
+                )
+            }
+        }
     }
 }
 impl fmt::Debug for RecordSet<'_> {
@@ -329,27 +440,54 @@ impl fmt::Debug for RecordSet<'_> {
 
 impl Model<'_> {
     pub fn search(&self, domain: Value) -> Result<Vec<u32>> {
-        self.api
-            .object_search("tec-528", 1, "admin", &self.desc.name, domain)
+        match &self.cli.session {
+            None => Err(Error::from_kind(ErrorKind::NotConnected)),
+            Some(session) => {
+                self.cli.api
+                    .object_search(
+                        &session.db, 1, "admin", &self.desc.name, domain)
+
+            }
+        }
     }
 
     pub fn browse(&self, ids: Vec<u32>) -> Result<RecordSet> {
-        let names: Vec<String> = self
-            .desc
-            .fields
+        let names = self.desc.fields
             .iter()
-            .map(|(name, _)| name.clone())
-            .collect();
-        let data = self
-            .api
-            .object_read("tec-528", 1, "admin", &self.desc.name, ids.clone(), names);
-        match data {
-            Ok(data) => Ok(RecordSet {
-                ids,
-                model: self,
-                data: serde_json::from_value::<Vec<Value>>(data).unwrap(),
-            }),
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<&str>>();
+        match self.read(&ids, &names) {
             Err(err) => Err(err),
+            Ok(data) => {
+                Ok(RecordSet {
+                    ids,
+                    model: self,
+                    data
+                })
+            }
+        }
+    }
+
+    pub fn read(&self, ids: &Vec<u32>, names: &Vec<&str>) -> Result<Vec<Value>> {
+        match &self.cli.session {
+            None => Err(Error::from_kind(ErrorKind::NotConnected)),
+            Some(session) => {
+
+                let data = self
+                    .cli.api
+                    .object_read(
+                        &session.db,
+                        1, "admin", &self.desc.name, ids, names);
+                match data {
+                    Err(err) => Err(err),
+                    Ok(data) => {
+                        match serde_json::from_value::<Vec<Value>>(data) {
+                            Err(err) => Err(Error::from_kind(ErrorKind::JsonError(err))),
+                            Ok(data) => Ok(data)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -498,13 +636,6 @@ impl OdooApi {
         let result = self.cli.decode_response::<Value>(resp);
         result
     }
-    pub fn get_model(&self, name: &str) -> Result<Model> {
-        let desc = self.object_fields_get("tec-528", 1, "admin", name);
-        match desc {
-            Ok(desc) => Ok(Model { desc, api: self }),
-            Err(err) => Err(err),
-        }
-    }
     pub fn object_fields_get(
         &self,
         db: &str,
@@ -575,10 +706,10 @@ impl OdooApi {
              {
                 "context": {
                     "lang": "en_US",
-                    "current_week": "2107",
+                    "current_week": "2108",
                     "tz": "Europe/Paris",
                     "uid": 1,
-                    "current_week2": "2018"
+                    "current_week2": "2109"
                 }
             }]
         );
@@ -591,8 +722,8 @@ impl OdooApi {
         uid: u32,
         login: &str,
         object: &str,
-        ids: Vec<u32>,
-        fields: Vec<String>,
+        ids: &Vec<u32>,
+        fields: &Vec<&str>,
     ) -> Result<Value> {
         let ids = json!(ids);
         let args = json!(
@@ -600,10 +731,10 @@ impl OdooApi {
              {
                 "context": {
                     "lang": "en_US",
-                    "current_week": "2107",
+                    "current_week": "2108",
                     "tz": "Europe/Paris",
                     "uid": 1,
-                    "current_week2": "2018"
+                    "current_week2": "2109"
                 }
             }]
         );
@@ -628,10 +759,10 @@ impl OdooApi {
                     {
                         "context": {
                             "lang": "en_US",
-                            "current_week": "2107",
+                            "current_week": "2108",
                             "tz": "Europe/Paris",
                             "uid": 1,
-                            "current_week2": "2018"
+                            "current_week2": "2109"
                         }
                     }
                 ])
@@ -641,10 +772,10 @@ impl OdooApi {
             {
                 "context": {
                     "lang": "en_US",
-                    "current_week": "2107",
+                    "current_week": "2108",
                     "tz": "Europe/Paris",
                     "uid": 1,
-                    "current_week2": "2018"
+                    "current_week2": "2109"
                 }
             }
             ]),
@@ -653,10 +784,10 @@ impl OdooApi {
             {
                 "context": {
                     "lang": "en_US",
-                    "current_week": "2107",
+                    "current_week": "2108",
                     "tz": "Europe/Paris",
                     "uid": 1,
-                    "current_week2": "2018"
+                    "current_week2": "2109"
                 }
             }
             ]),
@@ -665,10 +796,10 @@ impl OdooApi {
             {
                 "context": {
                     "lang": "en_US",
-                    "current_week": "2107",
+                    "current_week": "2108",
                     "tz": "Europe/Paris",
                     "uid": 1,
-                    "current_week2": "2018"
+                    "current_week2": "2109"
                 }
             }
 

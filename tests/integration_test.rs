@@ -1,13 +1,12 @@
 mod common;
-use roudoudou::{OdooApi, OdooRpc};
+use roudoudou::{OdooClient};
 use serde_json::json;
 
 #[test]
 fn reflect_stock_label_methods() {
     common::setup();
-    let rpc = OdooRpc::new();
-    let api = OdooApi::new(rpc);
-    let model = api.get_model("stock.label").unwrap();
+    let cli = OdooClient::new();
+    let model = cli.get_model("stock.label").unwrap();
     let res = model.call("get_public_methods", None, None).unwrap();
     assert_eq!(
         res,
@@ -87,9 +86,8 @@ fn reflect_stock_label_methods() {
 #[test]
 fn it_should_work_too() {
     common::setup();
-    let rpc = OdooRpc::new();
-    let api = OdooApi::new(rpc);
-    let model = api.get_model("res.users").unwrap();
+    let cli = OdooClient::new();
+    let model = cli.get_model("res.users").unwrap();
     let res = model.call("get_public_methods", None, None).unwrap();
     assert_eq!(res, json!([
         "check_can_login",

@@ -10,16 +10,15 @@ use dotenv::dotenv;
 pub use serde_json::json;
 pub use serde_json::{Map, Number, Value};
 use std::env;
-
-use roudoudou::{OdooApi, OdooRpc, SessionInfo, Error};
+use log::{debug, error};
+use roudoudou::{OdooClient, Error};
 
 fn main() -> Result<(), Error> {
     dotenv().ok();
 
-    let rpc = OdooRpc::new();
-    let api = OdooApi::new(rpc);
+    let mut cli = OdooClient::new();
 
-    let version = match api.version_info() {
+    let version = match cli.api.version_info() {
     
         Ok(version) => version,
         Err(err) => {
@@ -28,68 +27,50 @@ fn main() -> Result<(), Error> {
         }
     };
     println!("version: {:#?}", version);
-    let res: SessionInfo = api.login("tec-528", "admin", "admin").unwrap();
-    println!("login: res: {:#?}", res);
+    let cli = cli.login("ota3", "admin", "admin").unwrap();
+    println!("logged in");
     println!("calling db list ...");
-    let dblist = api.db_list().unwrap();
+    let dblist = cli.api.db_list().unwrap();
     println!("db_list: {:#?}", dblist);
     println!("field get ...");
-    let res = api.object_fields_get("tec-528", 1, "admin", "res.users");
-    match res {
-        Ok(obj) => {
-            // obj.show();
-            println!("{}", obj.name);
-        }
-        Err(why) => {
-            println!("err: {:#?}", why);
-        }
-    };
+    let StockLabel = cli.get_model("stock.label").unwrap();
 
-    let ids = match api.object_search(
-        "tec-528",
-        1,
-        "admin",
-        "stock.label",
+    match StockLabel.search(
         json!([
             ("is_terminal", "=", true),
             ("id", ">=", 1000),
             ("id", "<=", 1010)
         ]),
     ) {
-        Ok(val) => val,
+        Ok(ids) => {
+            match StockLabel.read(
+                &ids, 
+                &vec![
+                    "name",
+                    "product_id",
+                    "product_tag_ids",
+                    "is_terminal",
+                    "location_id",
+                    "state",
+                ]
+            ) {
+                Err(err) => {
+                    error!("search error: {}", err);
+                }
+                Ok(objs) => {
+                    debug!("objects: {:#?}", objs);
+                    for item in objs {
+                        println!("item: {:?}", item);
+                    }
+                }
+            }
+        },
         Err(err) => {
             println!("search error: {}", err);
-            vec![]
         }
     };
-    let res = api.object_read(
-        "tec-528",
-        1,
-        "admin",
-        "stock.label",
-        ids, // json!([1024, 1025, 1026])
-        [
-            "name".to_owned(),
-            "product_id".to_owned(),
-            "product_tag_ids".to_owned(),
-            "is_terminal".to_owned(),
-            "location_id".to_owned(),
-            "state".to_owned(),
-        ]
-        .to_vec(),
-    );
-    match res {
-        Ok(Value::Array(val)) => {
-            for item in val {
-                println!("item: {:?}", item);
-            }
-        }
-        _ => {
-            println!("uhh?");
-        }
-    }
 
-    let model = api.get_model("res.users").unwrap();
+    let model = cli.get_model("res.users").unwrap();
     let users = match model.search(json!([("id", ">", 0), ("id", "<", 10)])) {
         Ok(a) => model.browse(a),
         _ => unreachable!(),
@@ -97,14 +78,14 @@ fn main() -> Result<(), Error> {
     .unwrap();
     println!("XXX: users: {:?}", users);
 
-    let model = api.get_model("ir.module.module").unwrap();
+    let model = cli.get_model("ir.module.module").unwrap();
     let ids = model.search(json!([("name", "=", "mrp_fixes")])).unwrap();
     let module = model.browse(ids).unwrap();
     println!("module: {:?}", module);
     //println!("module data: {:#?}", module.data);
     println!("module name: {:?}", module.attr("name"));
 
-    let model = api.get_model("stock.label").unwrap();
+    let model = cli.get_model("stock.label").unwrap();
     let ids = model
         .search(json!([("name", "=", "352719110488433")]))
         .unwrap();
@@ -141,10 +122,10 @@ fn main() -> Result<(), Error> {
     match env::var("DB_PASSWORD") {
         Ok(password) => {
             println!("calling db dump ...");
-            let res = api.db_dump(&password, "tec-528", "dump.zip");
+            let res = cli.api.db_dump(&password, "tec-528", "dump.zip");
             println!("res: {:?}", res);
             println!("db drop ...");
-            let res = api.db_drop("diabeloop", "test2");
+            let res = cli.api.db_drop("diabeloop", "test2");
             match res {
                 Ok(val) => {
                     println!("drop: {:#?}", val);
@@ -155,7 +136,7 @@ fn main() -> Result<(), Error> {
             };
 
             println!("db create ...");
-            let res = api.db_create(&password, "test2", false, "fr_FR", "admin");
+            let res = cli.api.db_create(&password, "test2", false, "fr_FR", "admin");
             match res {
                 Ok(val) => {
                     println!("create: {:#?}", val);
@@ -165,7 +146,7 @@ fn main() -> Result<(), Error> {
                 }
             };
             println!("db drop ...");
-            let res = api.db_drop(&password, "test2");
+            let res = cli.api.db_drop(&password, "test2");
             match res {
                 Ok(val) => {
                     println!("drop: {:#?}", val);
@@ -180,7 +161,7 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    match api.logout() {
+    match cli.api.logout() {
         Ok(res) => println!("ok, logged out: {}", res),
         Err(err) => println!("ouch, could not logout: {}", err),
     }

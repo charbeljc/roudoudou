@@ -1,0 +1,26 @@
+: object.execute_kw(u'ota3',
+:                   1,
+:                   '*',
+:                   u'stock.label',
+:                   u'search',
+:                   [[[u'name', u'=', u'A0014']]],
+:                   {u'context': {u'current_week': u'2108',
+:                                 u'current_week2': u'2109',
+:                                 u'lang': u'en_US',
+:                                 u'tz': u'Europe/Paris',
+:                                 u'uid': 1}})
+
+: object.execute_kw(u'tec-528',
+:                   1,
+:                   '*',
+:                   u'stock.label',
+:                   u'search',
+:                   [[u'name', u'=', u'A0014']],
+:                   {u'context': {u'current_week': u'2107',
+:                                 u'current_week2': u'2018',
+:                                 u'lang': u'en_US',
+:                                 u'tz': u'Europe/Paris',
+:                                 u'uid': 1}})
+: [Registry - old# 55 new# 55] [Cache - old# 557 new# 557]
+: Multiprocess signaling check: [Registry - old# 55 new# 55] [Cache - old# 557 new# 557]
+: Invalid leaf name

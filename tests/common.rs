@@ -9,6 +9,7 @@ static START: Once = Once::new();
 pub fn setup() {
     START.call_once(|| {
         dotenv().ok();
+        env_logger::init();
         debug!("Test Session Setup!!");
         // let tunnel = ngrok::builder()
         //     .http()
