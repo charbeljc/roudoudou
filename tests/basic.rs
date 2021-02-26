@@ -1,6 +1,6 @@
 mod common;
 use log::debug;
-use roudoudou::{OString, OdooApi, OdooRpc};
+use roudoudou::{DBService, OString, OdooApi, OdooClient, OdooRpc};
 
 #[test]
 fn test_version_info() {
@@ -19,10 +19,10 @@ fn test_version_info() {
 #[test]
 fn test_dblist() {
     common::setup();
-    let rpc = OdooRpc::new();
-    let api = OdooApi::new(rpc);
+    let cli = OdooClient::new();
+    let db = DBService::new(&cli);
 
-    let dblist = api.db_list().unwrap();
+    let dblist = db.list().unwrap();
 
     debug!("dblist: {:#?}", dblist);
     assert!(dblist.iter().any(|x| x == "test"));

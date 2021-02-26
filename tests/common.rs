@@ -1,9 +1,8 @@
 use dotenv::dotenv;
 use log::debug;
-use ngrok2;
-use std::env;
+// use ngrok2;
 use std::process::Command;
-use std::{borrow::Borrow, sync::Once};
+use std::sync::Once;
 
 static START: Once = Once::new();
 

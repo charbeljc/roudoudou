@@ -8,11 +8,19 @@
 
 use dotenv::dotenv;
 use log::{debug, error};
-use roudoudou::{Error, OdooClient};
+use roudoudou::{DBService, Error, OdooClient};
 pub use serde_json::json;
 pub use serde_json::{Map, Number, Value};
 use std::env;
 
+macro_rules! oo_test {
+    () => {
+        json!([])
+    };
+    ($left:ident == $right:expr) => {
+        json!([stringify!($left), '=', $right])
+    };
+}
 fn main() -> Result<(), Error> {
     dotenv().ok();
 
@@ -27,20 +35,26 @@ fn main() -> Result<(), Error> {
     };
     println!("version: {:#?}", version);
     let cli = cli.login("ota3", "admin", "admin").unwrap();
+    let db = DBService::new(cli);
     println!("logged in");
     println!("calling db list ...");
-    let dblist = cli.api.db_list().unwrap();
-    println!("db_list: {:#?}", dblist);
+    let dblist = db.list().unwrap();
+    println!("db.list: {:#?}", dblist);
     println!("field get ...");
-    let StockLabel = cli.get_model("stock.label").unwrap();
+    let stock_label = cli.get_model("stock.label").unwrap();
+    let empty_dom = oo_test!();
+    let basic_eq = oo_test!(foo == true);
 
-    match StockLabel.search(json!([
+    assert_eq!(empty_dom, json!([]));
+    assert_eq!(basic_eq, json![("foo", "=", true)]);
+
+    match stock_label.search(json!([
         ("is_terminal", "=", true),
         ("id", ">=", 1000),
         ("id", "<=", 1010)
     ])) {
         Ok(ids) => {
-            match StockLabel.read(
+            match stock_label.read(
                 &ids,
                 &vec![
                     "name",
@@ -83,6 +97,10 @@ fn main() -> Result<(), Error> {
     println!("module name: {:?}", module.attr("name"));
 
     let model = cli.get_model("stock.label").unwrap();
+    let methods = model.get_methods();
+    println!("methods: {:#?}", methods);
+
+
     let ids = model
         .search(json!([("name", "=", "352719110488433")]))
         .unwrap();
@@ -108,9 +126,6 @@ fn main() -> Result<(), Error> {
     let res = card.call("servicing_ota_update", args, None);
     println!("servicing_ota result: {:?}", res);
 
-    let res = model.call("get_public_methods", None, None);
-    println!("get_public_methods: {:#?}", res);
-
     let res = term.call(
         "foobar",
         Some(json!((1, 2, 3))),
@@ -121,10 +136,10 @@ fn main() -> Result<(), Error> {
     match env::var("DB_PASSWORD") {
         Ok(password) => {
             println!("calling db dump ...");
-            let res = cli.api.db_dump(&password, "tec-528", "dump.zip");
+            let res = db.dump(&password, "tec-528", "dump.zip");
             println!("res: {:?}", res);
             println!("db drop ...");
-            let res = cli.api.db_drop("diabeloop", "test2");
+            let res = db.drop("diabeloop", "test2");
             match res {
                 Ok(val) => {
                     println!("drop: {:#?}", val);
@@ -135,9 +150,7 @@ fn main() -> Result<(), Error> {
             };
 
             println!("db create ...");
-            let res = cli
-                .api
-                .db_create(&password, "test2", false, "fr_FR", "admin");
+            let res = db.create(&password, "test2", false, "fr_FR", "admin");
             match res {
                 Ok(val) => {
                     println!("create: {:#?}", val);
@@ -147,7 +160,7 @@ fn main() -> Result<(), Error> {
                 }
             };
             println!("db drop ...");
-            let res = cli.api.db_drop(&password, "test2");
+            let res = db.drop(&password, "test2");
             match res {
                 Ok(val) => {
                     println!("drop: {:#?}", val);

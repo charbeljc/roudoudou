@@ -1,9 +1,10 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Map;
 use serde_json::Value;
-use std::{borrow::Borrow, env, fmt};
+use std::{env, fmt};
 use url::{ParseError, Url};
+use std::fs;
 
 use std::default::Default;
 use std::fs::File;
@@ -13,9 +14,16 @@ use std::io::Cursor;
 
 use std::collections::BTreeMap;
 
-use log::debug;
+use log::{debug, info};
 use reqwest::blocking::Client;
 use reqwest::blocking::Response;
+use lazy_static::lazy_static;
+use std::sync::{Arc, Mutex};
+
+lazy_static! {
+    static ref USER_MUTEX: Arc<Mutex<u16>> = Arc::new(Mutex::new(0u16));
+}
+
 
 #[macro_use]
 extern crate error_chain;
@@ -279,7 +287,7 @@ impl OdooRpc {
 
 #[derive(Debug)]
 pub struct OdooApi {
-    cli: OdooRpc,
+    rpc: OdooRpc,
     version_url: Url,
     login_url: Url,
     logout_url: Url,
@@ -358,6 +366,23 @@ pub struct Model<'a> {
     desc: ObjectDescriptor,
     cli: &'a OdooClient,
 }
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum MethodKind {
+    #[serde(alias = "multi")]
+    Multi,
+    #[serde(alias = "model")]
+    Model,
+    #[serde(alias = "one")]
+    One,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Method {
+    pub name: String,
+    pub kind: MethodKind
+}
+
+
 impl fmt::Debug for Model<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("Model")
@@ -430,7 +455,19 @@ impl fmt::Debug for RecordSet<'_> {
     }
 }
 
-impl Model<'_> {
+impl<'a> Model<'a> {
+    pub fn get_methods(&self) -> Result<Vec<Method>> {
+        match self.call("get_public_methods", None, None) {
+            Err(err) => Err(err),
+            Ok(value) => {
+               match serde_json::from_value::<Vec<Method>>(value).chain_err(|| "woops") {
+                   Err(err) => Err(err),
+                   Ok(meths) => Ok(meths)
+               }
+                
+            }
+        }
+    }
     pub fn search(&self, domain: Value) -> Result<Vec<u32>> {
         match &self.cli.session {
             None => Err(Error::from_kind(ErrorKind::NotConnected)),
@@ -509,13 +546,13 @@ pub static OBJECT_SERVICE: OdooService = OdooService {
 };
 
 impl OdooApi {
-    pub fn new(cli: OdooRpc) -> Self {
-        let version_url = cli.base_url.join(ODOO_SERVER_VERSION).unwrap();
-        let login_url = cli.base_url.join(ODOO_LOGIN).unwrap();
-        let logout_url = cli.base_url.join(ODOO_LOGOUT).unwrap();
+    pub fn new(rpc: OdooRpc) -> Self {
+        let version_url = rpc.base_url.join(ODOO_SERVER_VERSION).unwrap();
+        let login_url = rpc.base_url.join(ODOO_LOGIN).unwrap();
+        let logout_url = rpc.base_url.join(ODOO_LOGOUT).unwrap();
 
         let api: OdooApi = Self {
-            cli: cli,
+            rpc,
             version_url: version_url.clone(),
             login_url: login_url.clone(),
             logout_url: logout_url.clone(),
@@ -526,30 +563,42 @@ impl OdooApi {
 
     pub fn version_info(&self) -> Result<VersionInfo> {
         let params = json!({});
-        let payload = self.cli.encode_query("call", params);
-        self.cli.decode_response::<VersionInfo>(
-            self.cli.send_payload(self.version_url.as_str(), payload),
+        let payload = self.rpc.encode_query("call", params);
+        self.rpc.decode_response::<VersionInfo>(
+            self.rpc.send_payload(self.version_url.as_str(), payload),
         )
     }
 
     pub fn login(&self, db: &str, login: &str, password: &str) -> Result<SessionInfo> {
         let params = json!({"db": db, "login": login, "password": password});
-        let payload = self.cli.encode_query("call", params);
-        self.cli
-            .decode_response::<SessionInfo>(self.cli.send_payload(self.login_url.as_str(), payload))
+        let payload = self.rpc.encode_query("call", params);
+        let mutex = Arc::clone(&USER_MUTEX);
+        let mut login_count = mutex.lock().unwrap();
+        let resp = self.rpc.send_payload( self.login_url.as_str(), payload);
+        match self.rpc.decode_response::<SessionInfo>(resp) {
+            Err(err) => Err(err),
+            Ok(session_info) => {
+
+                info!("user logged in: {:#?}", session_info);
+                *login_count += 1;
+                Ok(session_info)
+            }
+        }
     }
 
     pub fn logout(&self) -> Result<Value> {
         let params = json!({});
-        let payload = self.cli.encode_query("call", params);
-        let resp = self.cli.send_payload(self.logout_url.as_str(), payload);
-        match resp {
-            Ok(resp) => {
-                let data = resp.text().unwrap();
-                debug!("data: {}", data);
-                Ok(serde_json::from_str(&data).unwrap())
-            }
+        let payload = self.rpc.encode_query("call", params);
+        let mutex = Arc::clone(&USER_MUTEX);
+        let mut login_count = mutex.lock().unwrap();
+        let resp = self.rpc.send_payload( self.logout_url.as_str(), payload);
+        match self.rpc.decode_response::<Value>(resp) {
             Err(err) => Err(err),
+            Ok(resp) => {
+                debug!("data: {}", resp);
+                *login_count -= 1;
+                Ok(resp)
+            }
         }
         //self.decode_response::<Value>(self.cli.send_payload(self.logout_url.as_str(), payload))
     }
@@ -564,62 +613,12 @@ impl OdooApi {
             "method": method,
             "args": args
         });
-        let payload = self.cli.encode_query("call", params);
-        let endpoint = self.cli.base_url.join(service.path).unwrap();
-        let resp = self.cli.send_payload(endpoint.as_str(), payload);
+        let payload = self.rpc.encode_query("call", params);
+        let endpoint = self.rpc.base_url.join(service.path).unwrap();
+        let resp = self.rpc.send_payload(endpoint.as_str(), payload);
         resp
     }
-    pub fn db_list(&self) -> Result<Vec<String>> {
-        let resp = self.odoo_service_call(&DB_SERVICE, "list", json!([]));
-        self.cli.decode_response::<Vec<String>>(resp)
-    }
-    pub fn db_dump(&self, master_password: &str, db: &str, path: &str) -> Result<()> {
-        let resp = self.odoo_service_call(&DB_SERVICE, "dump", json!([master_password, db, "zip"]));
-        let data = self.cli.decode_response::<String>(resp); // FIXME: allocating a whole data dump is bad ...
-        match data {
-            Ok(data) => {
-                let f = File::create(path).unwrap();
-                let mut writer = BufWriter::new(f);
-                let wrapped_reader = Cursor::new(data);
-                debug!("save dump to {} ...", path);
-                for line in wrapped_reader.lines() {
-                    match line {
-                        Ok(val) => {
-                            let data = base64::decode(val).unwrap();
-                            writer.write(&data).unwrap();
-                        }
-                        Err(err) => {
-                            debug!("err: {:#?}", err);
-                        }
-                    }
-                }
-                Ok(())
-            }
-            Err(err) => Err(err),
-        }
-    }
-    pub fn db_create(
-        &self,
-        master_password: &str,
-        db: &str,
-        demo: bool,
-        lang: &str,
-        admin_password: &str,
-    ) -> Result<Value> {
-        let resp = self.odoo_service_call(
-            &DB_SERVICE,
-            "create_database",
-            json!([master_password, db, demo, lang, admin_password]),
-        );
-        let result = self.cli.decode_response::<Value>(resp);
-        result
-    }
 
-    pub fn db_drop(&self, master_password: &str, db: &str) -> Result<Value> {
-        let resp = self.odoo_service_call(&DB_SERVICE, "drop", json!([master_password, db]));
-        let result = self.cli.decode_response::<Value>(resp);
-        result
-    }
     pub fn object_fields_get(
         &self,
         db: &str,
@@ -634,7 +633,7 @@ impl OdooApi {
         );
         //prointln!(r#"resp: {:#?}"#, resp);
 
-        match self.cli.decode_response::<Map<String, Value>>(resp) {
+        match self.rpc.decode_response::<Map<String, Value>>(resp) {
             Ok(values) => {
                 let mut fields = BTreeMap::<String, FieldDescriptor>::new();
                 for (attr, obj) in values.iter() {
@@ -698,7 +697,7 @@ impl OdooApi {
             }]
         );
         let resp = self.odoo_service_call(&OBJECT_SERVICE, "execute_kw", args);
-        self.cli.decode_response::<Vec<u32>>(resp)
+        self.rpc.decode_response::<Vec<u32>>(resp)
     }
     pub fn object_read(
         &self,
@@ -723,7 +722,7 @@ impl OdooApi {
             }]
         );
         let resp = self.odoo_service_call(&OBJECT_SERVICE, "execute_kw", args);
-        self.cli.decode_response::<Value>(resp)
+        self.rpc.decode_response::<Value>(resp)
     }
     pub fn recordset_call(
         &self,
@@ -790,7 +789,112 @@ impl OdooApi {
             ]),
         };
         let resp = self.odoo_service_call(&OBJECT_SERVICE, "execute_kw", args);
-        self.cli.decode_response::<Value>(resp)
+        self.rpc.decode_response::<Value>(resp)
+    }
+}
+
+#[derive(Debug)]
+pub struct DBService<'a> {
+    cli: &'a OdooClient
+}
+impl<'a> DBService<'a> {
+    pub fn new(cli: &'a OdooClient) -> Self {
+        DBService {
+            cli
+        }
+    }
+    
+    pub fn list(&self) -> Result<Vec<String>> {
+        let resp = self.cli.api.odoo_service_call(&DB_SERVICE, "list", json!([]));
+        self.cli.api.rpc.decode_response::<Vec<String>>(resp)
+    }
+    pub fn dump(&self, master_password: &str, db: &str, path: &str) -> Result<()> {
+        let resp = self.cli.api.odoo_service_call(&DB_SERVICE, "dump", json!([master_password, db, "zip"]));
+        let data = self.cli.api.rpc.decode_response::<String>(resp); // FIXME: allocating a whole data dump is bad ...
+        match data {
+            Ok(data) => {
+                let f = File::create(path).unwrap();
+                let mut writer = BufWriter::new(f);
+                let wrapped_reader = Cursor::new(data);
+                debug!("save dump to {} ...", path);
+                for line in wrapped_reader.lines() {
+                    match line {
+                        Ok(val) => {
+                            let data = base64::decode(val).unwrap();
+                            writer.write(&data).unwrap();
+                        }
+                        Err(err) => {
+                            debug!("err: {:#?}", err);
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
+    }
+    pub fn duplicate(&self, master_password: &str, db: &str, new_db: &str) -> Result<Value> {
+        match self.cli.api.odoo_service_call(
+            &DB_SERVICE,
+            "duplicate_database",
+            json!([master_password, db, new_db])
+        ) {
+            Err(err) =>  { return Err(err) }
+            Ok(resp) => {
+                let res: Result<Value> = serde_json::from_reader(resp).chain_err(|| "huu") ;
+
+                match res {
+                    Ok(data) => Ok(data),
+                    Err(err) => Err(err)
+                }
+            }
+        }
+        //let data = serde_json::from_reader(resp.into_reader());
+    }
+    pub fn restore(&self, master_password: &str, db: &str, path: &str, _new_uid: bool) -> Result<()> {
+        // ouch ...
+        let res: Result<String> = fs::read_to_string(path).chain_err(|| "foobar");
+        match res {
+            Err(err) => Err(err),
+            Ok(content) => {
+                let encoded = base64::encode(content);
+                
+                let resp = self.cli.api.odoo_service_call(
+                    &DB_SERVICE, "dump", json!([master_password, db, "zip"]));
+                let data = self.cli.api.rpc.decode_response::<Value>(resp); // FIXME: allocating a whole data dump is bad ...
+
+                match data {
+                    Err(err) => Err(err),
+                    Ok(data) => {
+                        debug!("database restored: {:#?}", data);
+                        Ok(())
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn create(
+        &self,
+        master_password: &str,
+        db: &str,
+        demo: bool,
+        lang: &str,
+        admin_password: &str,
+    ) -> Result<Value> {
+        let resp = self.cli.api.odoo_service_call(
+            &DB_SERVICE,
+            "create_database",
+            json!([master_password, db, demo, lang, admin_password]),
+        );
+        let result = self.cli.api.rpc.decode_response::<Value>(resp);
+        result
+    }
+
+    pub fn drop(&self, master_password: &str, db: &str) -> Result<Value> {
+        let resp = self.cli.api.odoo_service_call(&DB_SERVICE, "drop", json!([master_password, db]));
+        let result = self.cli.api.rpc.decode_response::<Value>(resp);
+        result
     }
 }
 
