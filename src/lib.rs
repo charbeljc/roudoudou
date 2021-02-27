@@ -419,7 +419,7 @@ pub struct RecordSet<'a> {
 
 impl RecordSet<'_> {
     /// get attribute `name` for the first object of this record set
-    pub fn attr(&self, name: &str) -> Option<&Value> {
+    pub fn get(&self, name: &str) -> Option<&Value> {
         let head = &self.data[0];
         match head {
             Value::Object(obj) => obj.get(name),
@@ -427,6 +427,9 @@ impl RecordSet<'_> {
                 unreachable!()
             }
         }
+    }
+    pub fn set<T>(&self, name: &str, value: T) {
+        let head = &self.data[0];
     }
     /// call `method` on this `RecordSet`
     pub fn call(&self, method: &str, args: Option<Value>, kwargs: Option<Value>) -> Result<Value> {

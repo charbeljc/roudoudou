@@ -49,11 +49,23 @@ fn test_dblist() {
 
 macro_rules! assert_attr_eq {
     ($obj:expr, $name:ident, None) => {
-        assert_eq!(($obj).attr(stringify!($name)), None)
+        assert_eq!(($obj).get(stringify!($name)), None)
     };
     ($obj:expr, $name:ident, $expr:tt) => {
-        assert_eq!(($obj).attr(stringify!($name)), Some(&json!($expr)))
+        assert_eq!(($obj).get(stringify!($name)), Some(&json!($expr)))
     };
+}
+
+macro_rules! oo_get  {
+    ($obj:expr, $name:ident) => {
+        ($obj).get(stringify!($name))
+    }
+}
+
+macro_rules! oo_set {
+    ($obj:expr, $name:ident, $value:expr) => {
+        ($obj).set(stringify!($name), $value)
+    }
 }
 #[test]
 fn ota_update_kit_1000_os_version() {
@@ -75,6 +87,18 @@ fn ota_update_kit_1000_os_version() {
                 }
                 Ok(labels) => {
                     assert_attr_eq!(labels, name, "1000");
+                    match oo_get!(labels, name) {
+                        Some(value) => {
+                            assert_eq!(value, &json!("1000"));
+                        }
+                        None => {
+
+                        }
+                    }
+                    oo_set!(labels, name, "foobar");
+
+                    let name = oo_get!(labels, name);
+
                     // assert_attr_eq!(labels, os_version, "OPM7.DBLG.012");
                     // assert_attr_eq!(labels, app_version, "1.3.1.9-dblg1-full-commercial");
                     // assert_attr_eq!(labels, updater_version, "1.4.0.28");

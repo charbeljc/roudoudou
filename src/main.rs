@@ -13,14 +13,6 @@ pub use serde_json::json;
 pub use serde_json::{Map, Number, Value};
 use std::env;
 
-macro_rules! oo_test {
-    () => {
-        json!([])
-    };
-    ($left:ident == $right:expr) => {
-        json!([stringify!($left), '=', $right])
-    };
-}
 fn main() -> Result<(), Error> {
     dotenv().ok();
 
@@ -42,11 +34,6 @@ fn main() -> Result<(), Error> {
     println!("db.list: {:#?}", dblist);
     println!("field get ...");
     let stock_label = cli.get_model("stock.label").unwrap();
-    let empty_dom = oo_test!();
-    let basic_eq = oo_test!(foo == true);
-
-    assert_eq!(empty_dom, json!([]));
-    assert_eq!(basic_eq, json![("foo", "=", true)]);
 
     match stock_label.search(json!([
         ("is_terminal", "=", true),
@@ -94,7 +81,7 @@ fn main() -> Result<(), Error> {
     let module = model.browse(&ids).unwrap();
     println!("module: {:?}", module);
     //println!("module data: {:#?}", module.data);
-    println!("module name: {:?}", module.attr("name"));
+    println!("module name: {:?}", module.get("name"));
 
     let model = cli.get_model("stock.label").unwrap();
     let methods = model.get_methods();
@@ -108,9 +95,9 @@ fn main() -> Result<(), Error> {
     println!("terminal: {:?}", term);
     println!(
         "name: {:?} is_terminal: {:?} is_diabeloop: {:?}",
-        term.attr("name"),
-        term.attr("is_terminal"),
-        term.attr("is_diabeloop")
+        term.get("name"),
+        term.get("is_terminal"),
+        term.get("is_diabeloop")
     );
     let update = json!({"os": {"version": "0.1.0", "apk": "foobar.apk"}});
 
